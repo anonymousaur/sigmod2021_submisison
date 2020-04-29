@@ -18,6 +18,17 @@ class CorrGraph(object):
         self.edge_cut_scores = []
         self.inverse_locs = []
 
+    def clone_edge_graph(self):
+        g = {}
+        # Clones the edge graph and returns a dictionary mapping nodes in the mapped set (col2) to
+        # the target set (col1).
+        for i, e0 in enumerate(self.edges1):
+            n = []
+            for k, _ in e0.items():
+                n.append(k)
+            g[i] = n
+        return g
+
     def name(self, node, side=0):
         return 'c%d:%d' % (side, node)
 
@@ -109,5 +120,21 @@ class CorrGraph(object):
             sys.stdout.flush()
         return data_x, data_y 
 
-
+    def minimize_overhead(self, strategy="pts", max_outlier_frac=0.1):
+        best_so = 1 << 50
+        best_so_graph = None
+        best_outliers = 0
+        self.init_edge_cut()
+        while True:
+            so = self.scan_overhead(outliers=self.outliers, strategy=strategy)
+            if so < best_so:
+                best_so = so
+                best_outliers = self.outliers
+                best_so_graph = self.clone_edge_graph()
+            ecut, score = self.cut_best_edge(strategy)
+            if ecut is None:
+                break
+            if self.outliers >= max_outlier_frac*self.npts:
+                break
+        return best_so_graph, best_so, best_outliers
 
