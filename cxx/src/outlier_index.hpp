@@ -10,76 +10,74 @@
 #include "types.h"
 
 template <size_t D>
-SingleDimensionalOutlierIndex<D>::SingleDimensionalOutlierIndex(size_t dim, const std::vector<size_t>& outlier_list)
-    : column_(dim), buckets_(), outlier_list_(outlier_list) {}
+OutlierIndex<D>::OutlierIndex(const std::vector<size_t>& outlier_list)
+    : Indexer<D>(0), main_indexer_(), outlier_indexer_(), outlier_list_(outlier_list) {}
 
 template <size_t D>
-std::vector<PhysicalIndexRange> SingleDimensionalOutlierIndex<D>::Ranges(const Query<D>& q) const {
-    auto accessed = q.filters[column_];
-    std::vector<PhysicalIndexRange> ranges;
-    ranges.reserve(accessed.size()+1);
-    for (Scalar val : accessed) {
-        auto loc = buckets_.find(val);
-        if (loc != buckets_.end()) {
-            ranges.push_back(loc->second);
-        }
+void OutlierIndex<D>::SetIndexer(std::unique_ptr<Indexer<D>> indexer) {
+    assert (indexer);
+    main_indexer_ = std::move(indexer);
+}
+
+template <size_t D>
+void OutlierIndex<D>::SetOutlierIndexer(std::unique_ptr<Indexer<D>> indexer) {
+    assert (indexer);
+    outlier_indexer_ = std::move(indexer);
+}
+
+template <size_t D>
+std::vector<PhysicalIndexRange> OutlierIndex<D>::Ranges(const Query<D>& q) const {
+    bool relevant = false;
+    for (size_t col : this->columns_) {
+        relevant |= q.filters[col].present;
     }
-    ranges.push_back(outlier_range_);
+    // If the primary indexer is useless, just return the full range. Since outliers are small,
+    // there's not much the outlier index will be able to do.
+    if (!relevant) {
+        std::cout << "Outlier index not relevant" << std::endl;
+        return {{0, data_size_}};
+    }
+    auto ranges = main_indexer_->Ranges(q);
+    if (outlier_indexer_) {
+        // Add the outlier ranges, but since they are relative to the outlier start index (i.e.,
+        // they aren't aware that outliers are shifted), they have to be shifted manually.
+        auto outlier_ranges = outlier_indexer_->Ranges(q);
+        ranges.reserve(ranges.size() + outlier_ranges.size());
+        for (PhysicalIndexRange r : outlier_ranges) {
+            ranges.emplace_back(r.start + outlier_start_ix_, r.end + outlier_start_ix_);
+        }
+    } else {
+        ranges.emplace_back(outlier_start_ix_, data_size_);
+    }
     return ranges;
 }
 
 template <size_t D>
-void SingleDimensionalOutlierIndex<D>::Init(std::vector<Point<D>>* data) {
-    std::vector<std::pair<Scalar, size_t>> indices(data->size());
-    size_t outlier_ix = 0;
-    for (size_t i = 0; i < data->size(); i++) {
-        Scalar ix_val = 0;
-        if (outlier_ix >= outlier_list_.size() || i < outlier_list_[outlier_ix]) {
-            ix_val = data->at(i)[column_];
-        } else {
-            ix_val = outlier_bucket_;
-            outlier_ix++;
+void OutlierIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
+    std::sort(outlier_list_.begin(), outlier_list_.end());
+    // Move all the outliers to the end of the list.
+    auto next_outlier = end-1;
+    for (auto oit = outlier_list_.rbegin(); oit != outlier_list_.rend(); oit++) {
+        size_t oix = *oit;
+        if (start + oix != next_outlier) {
+            std::iter_swap(start + oix, next_outlier);
         }
-        indices[i] = std::make_pair(ix_val, i);
+        next_outlier--;
     }
-
-    // Sort by this array instead.
-    std::sort(indices.begin(), indices.end(),
-        [](const std::pair<Scalar, size_t>& a, const std::pair<Scalar, size_t>& b) -> bool {
-            return a.first < b.first;
-        });
-    std::vector<Point<D>> data_cpy(data->size());
-    std::transform(indices.begin(), indices.end(), data_cpy.begin(),
-            [data](const auto& ix_pair) -> Point<D> {
-                return data->at(ix_pair.second);
-                });
-
-    // Run through sorted data to build the index
-    Scalar cur_ix_val = SCALAR_MIN;
-    size_t cur_min_ix = 0;
-    size_t cur_max_ix = 0;
-    for (const auto item : indices) {
-        if (cur_ix_val < item.first) {
-            if (cur_ix_val == outlier_bucket_) {
-                outlier_range_ = PhysicalIndexRange(cur_min_ix, cur_max_ix, false);
-            } else {
-                buckets_.emplace(cur_ix_val, PhysicalIndexRange(cur_min_ix, cur_max_ix, false));
-            }
-            cur_min_ix = cur_max_ix;
-            cur_ix_val = item.first;
-        }
-        cur_max_ix++;
+    auto outlier_start = next_outlier + 1;
+    
+    assert (main_indexer_);
+    main_indexer_->Init(start, outlier_start);
+    data_size_ = std::distance(start, end);
+    outlier_start_ix_ = data_size_ - outlier_list_.size(); 
+    if (outlier_indexer_) {
+       outlier_indexer_->Init(outlier_start, end);
     }
-    // Get the last one too
-    if (cur_ix_val == outlier_bucket_) {
-        outlier_range_ = PhysicalIndexRange(cur_min_ix, cur_max_ix, false);
-    } else {
-        buckets_.emplace(cur_ix_val, PhysicalIndexRange(cur_min_ix, cur_max_ix, false));
-    }
-    std::cout << "Index has " << buckets_.size() << " buckets + outliers" << std::endl;
-    std::cout << "Outlier range: " << outlier_range_.start << " - " << outlier_range_.end << std::endl;
-    outlier_list_.clear();    
-    data->assign(data_cpy.begin(), data_cpy.end());
+    
+    // Clear the list since we don't need it anymore.
+    outlier_list_.clear();
+    auto main_cols = main_indexer_->GetColumns();
+    this->columns_.insert(main_cols.begin(), main_cols.end());
     ready_ = true;
 }
 

@@ -10,6 +10,7 @@
 
 #include "types.h"
 #include "rewriter.h"
+#include <vector>
 
 template <size_t D>
 class SingleColumnRewriter : public Rewriter<D> {
@@ -26,12 +27,33 @@ class SingleColumnRewriter : public Rewriter<D> {
     }
 
     Query<D> Rewrite(const Query<D>& q) const override;
-
-  protected:
+    
     void Load(const std::string& filename);
 
+    std::vector<ScalarRange> UnionSortedRanges(
+            const std::vector<ScalarRange>& first,
+            const std::vector<ScalarRange>& second) const;
+
+    std::vector<ScalarRange> IntersectSortedRanges(
+            const std::vector<ScalarRange>& first,
+            const std::vector<ScalarRange>& second) const;
+
+  protected:
+    void LoadContinuous(std::istream& file);
+    void LoadCategorical(std::istream& file);
+
+    QueryFilter RewriteRangeFilter(const QueryFilter& mapped, const QueryFilter& target) const;
+    QueryFilter RewriteValueFilter(const QueryFilter& mapped, const QueryFilter& target) const;
+
+
+
   private:
-    std::unordered_map<Scalar, std::vector<Scalar>> cmap_;
+    // For categorical variables, we map each value to a set of target values.
+    // Unioning is simple to do with a set. 
+    std::map<Scalar, std::vector<Scalar>> cmap_categorical_;
+    // For continuous variables, each value (marking the *end* of a column) is mapped to a sequence
+    // of target value ranges. Unioning is done by a linear merge algorithm.
+    std::map<Scalar, std::vector<ScalarRange>> cmap_continuous_;
     // The rewriter maps values in mapped_dim_ to values in target_dim_ and adds those target_dim_
     // values to the query.
     size_t mapped_dim_;

@@ -8,14 +8,12 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <unordered_map>
+#include <unordered_set>
 #include <cassert>
 
 #include "dataset.h"
 #include "datacube.h"
 #include "types.h"
-#include "disk_storage_manager.h"
-#include "buffer_manager.h"
 
 template <size_t D>
 class InMemoryColumnOrderDataset : public Dataset<D> {

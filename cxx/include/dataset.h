@@ -17,14 +17,40 @@ class Dataset {
     virtual Scalar GetCoord(size_t id, size_t dim) const = 0;
     
     // Return a bitstring denoting all the indices between start (inclusive) and end (exclusive),
-    // whose coordinate at dimension `dim` falls between `lower` and `upper` (inclusive).
+    // whose coordinate at dimension `dim` is in the given set of values `vset`.
     // Precondition: end - start <= 64. If end - start < 64, the remaining most significant bits should be 0.
-    virtual uint64_t GetCoordInSet(size_t start, size_t end, size_t dim, const std::unordered_set<Scalar>& set) const {
+    virtual uint64_t GetCoordInSet(size_t start, size_t end, size_t dim, const std::unordered_set<Scalar>& vset) const {
         uint64_t valid = 0;
         for (size_t i = start; i < end; i++) {
             valid <<= 1;
             Scalar c = GetCoord(i, dim);
-            valid |= (set.find(c) != set.end());
+            valid |= (vset.find(c) != vset.end());
+        }
+        return valid;
+    }
+    
+    // Return a bitstring denoting all the indices between start (inclusive) and end (exclusive),
+    // whose coordinate at dimension `dim` falls between low (inclusive) and high (exclusive)
+    // Precondition: end - start <= 64. If end - start < 64, the remaining most significant bits should be 0.
+    virtual uint64_t GetCoordInRange(size_t start, size_t end, size_t dim, Scalar low, Scalar high) const {
+        uint64_t valid = 0;
+        for (size_t i = start; i < end; i++) {
+            valid <<= 1;
+            Scalar c = GetCoord(i, dim);
+            valid |= c >= low && c < high;
+        }
+        return valid;
+    }
+    
+    // Return a bitstring denoting all the indices between start (inclusive) and end (exclusive),
+    // whose coordinate at dimension `dim` falls in one of the ranges in `rset`. 
+    // Precondition: end - start <= 64. If end - start < 64, the remaining most significant bits should be 0.
+    virtual uint64_t GetCoordInRanges(size_t start, size_t end, size_t dim, const RangeSet& rset) const {
+        uint64_t valid = 0;
+        for (size_t i = start; i < end; i++) {
+            valid <<= 1;
+            Scalar c = GetCoord(i, dim);
+            valid |= rset.Test(c);
         }
         return valid;
     }

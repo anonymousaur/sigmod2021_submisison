@@ -94,29 +94,6 @@ public:
 };
 
 template <size_t D>
-class AtomicCountVisitor: public Visitor<D> {
-public:
-    std::atomic<size_t> count;
-    AtomicCountVisitor<D>() : count(0) {}
-
-    void visit(const PointRef<D>&) override {
-        count.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    void visitRange(const Dataset<D> *dset, size_t start, size_t end, uint64_t valids) override {
-        (void)dset;
-        (void)start;
-        (void)end;
-        count.fetch_add(__builtin_popcountll(valids), std::memory_order_relaxed);
-    }
-
-    void visitExactRange(const Dataset<D> *dset, size_t start, size_t end) override {
-        (void)dset;
-        count.fetch_add(end - start, std::memory_order_relaxed);
-    }
-};
-
-template <size_t D>
 class CollectVisitor: public Visitor<D> {
 public:
     size_t count = 0;
@@ -126,31 +103,6 @@ public:
 
     void visit(const PointRef<D>& p) override {
         result_set.push_back(p.dataset->Get(p.idx));
-    }
-};
-
-template <size_t D>
-class AvgVisitor: public Visitor<D> {
-public:
-    std::atomic<size_t> count;
-    std::atomic<Scalar> sum;
-    AvgVisitor() : count(0), sum(0) {}
-
-    void visit(const PointRef<D>& p) override {
-        count.fetch_add(1, std::memory_order_relaxed);
-        sum.fetch_add(p.dataset->GetCoord(p.idx, 0), std::memory_order_relaxed);
-    }
-
-    void visitRange(const Dataset<D> *dset, size_t start, size_t end, uint64_t valids) override {
-        sum.fetch_add(dset->GetRangeSum(start, end, 0, valids), std::memory_order_relaxed);
-        count.fetch_add(__builtin_popcount(valids), std::memory_order_relaxed);
-    }
-    
-    void visitExactRange(const Dataset<D>* dset, size_t start, size_t end) {
-        // Access datacube in the last dimension..
-        Scalar delta = dset->GetCoord(end, D+1) - dset->GetCoord(start, D+1); 
-        //std::cout << "start " << start << ", end = " << end << ", delta = " << delta << std::endl;
-        sum.fetch_add(delta, std::memory_order_relaxed);
     }
 };
 
@@ -169,22 +121,22 @@ class IndexVisitor : public Visitor<D> {
 template <size_t D>
 class SumVisitor: public Visitor<D> {
 public:
-    std::atomic<Scalar> sum;
+    Scalar sum;
     SumVisitor() : sum(0) {}
 
     void visit(const PointRef<D>& p) override {
-        sum.fetch_add(p.dataset->GetCoord(p.idx, 0), std::memory_order_relaxed);
+        sum += p.dataset->GetCoord(p.idx, 0);
     }
 };
 
 template <size_t D>
 class SumProductVisitor: public Visitor<D> {
 public:
-    std::atomic<Scalar> sum;
+    Scalar sum;
     SumProductVisitor() : sum(0) {}
 
     void visit(const PointRef<D>& p) override {
-        sum.fetch_add(p.dataset->GetCoord(p.idx, 0) * p.dataset->GetCoord(p.idx, 1), std::memory_order_relaxed);
+        sum += p.dataset->GetCoord(p.idx, 0) * p.dataset->GetCoord(p.idx, 1);
     }
 };
 
@@ -192,11 +144,11 @@ public:
 template <size_t D>
 class AggregateVisitor: public Visitor<D> {
 public:
-    std::atomic<Scalar> aggregate;
+    Scalar aggregate;
     AggregateVisitor() : aggregate(0) {}
 
     void visit(const PointRef<D>& p) override {
-        aggregate.fetch_add(p.dataset->GetCoord(p.idx, 3) * p.dataset->GetCoord(p.idx, 6), std::memory_order_relaxed);  // extended price and discount
+        aggregate += p.dataset->GetCoord(p.idx, 3) * p.dataset->GetCoord(p.idx, 6);
     }
 };
 
