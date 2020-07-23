@@ -93,7 +93,8 @@ class SingleColumnStasher(object):
                 #min(col_ix+2*self.k-1, self.benefit.shape[1])) 
         return stash_size, ben, (col_ix, col_ix+self.k)
 
-    def scan_overhead(self):
+    # Returns the number of extra points scanned.
+    def scan_overhead(self, secondary_index=False):
         overhead = 0
         total_true_pts = 0
         for i in range(len(self.benefit)):
@@ -101,6 +102,9 @@ class SingleColumnStasher(object):
             total_true_pts += true_pts
             is_accessed = self.counts[i:i+self.k].sum() > 0
             accessed = is_accessed * self.cumul_count
-            overhead += self.removed[i:i+self.k].sum() + accessed - true_pts
+            if secondary_index:
+                overhead += self.removed[i:i+self.k].sum() + accessed - true_pts
+            else:
+                overhead += self.removed.sum() + accessed - true_pts
         return overhead, total_true_pts
 
