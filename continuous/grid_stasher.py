@@ -1,7 +1,7 @@
 import numpy as np
 
 # Keeps track of the points that need pruning.
-class ConvolutionGrid(object):
+class GridStasher(object):
     # Grid is a 2D array of integers denoting how many points are in each bucket
     # k is the size of the average query (how many buckets it spans)
     def __init__(self, grid, k):

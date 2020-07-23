@@ -11,10 +11,13 @@ class SingleColumnStasher(object):
         self.counts = counts
         self.original_counts = np.copy(counts)
         self.k = k
+        self.arange_reset = np.arange(k)
         self.cumul_count = np.sum(counts)
         self.init_zeros()
         self.init_benefit()
-        self.removed = 0
+        # For each bucket id in the target dimension, stores the total number of points removed
+        # among all buckets with that bucket id. 
+        self.removed = np.zeros(len(counts), dtype=int)
 
     def init_zeros(self):
         self.zeros_left = np.zeros(len(self.counts), dtype=np.int16)
@@ -46,8 +49,8 @@ class SingleColumnStasher(object):
                 self.zeros_right[i] = i + k
 
     def init_benefit(self):
-        self.benefit = np.zeros(len(self.counts)-self.k+1), dtype=int)
-        self.benefit2 = np.zeros(len(self.counts)-self.k+1), dtype=np.float64)
+        self.benefit = np.zeros(len(self.counts)-self.k+1, dtype=int)
+        self.benefit2 = np.zeros(len(self.counts)-self.k+1, dtype=np.float64)
         self.update_benefits(0, len(self.benefit))
         
     def update_benefits(self, start, end):
@@ -80,6 +83,7 @@ class SingleColumnStasher(object):
             return None, None, None
         stash_size = self.counts[col_ix:col_ix+self.k].sum()
         self.cumul_count -= stash_size
+        self.removed[col_ix:col_ix+self.k] += self.counts[col_ix:col_ix+self.k]
         self.counts[col_ix:col_ix+self.k] = 0
         self.update_zeros(col_ix, self.k)
         # TODO: make this faster by storing the number of eliminated queries, so we can do a one
@@ -87,15 +91,16 @@ class SingleColumnStasher(object):
         self.update_benefits(0, len(self.benefit))
                 #max(0, col_ix-self.k+1),
                 #min(col_ix+2*self.k-1, self.benefit.shape[1])) 
-        self.removed += stash_size
         return stash_size, ben, (col_ix, col_ix+self.k)
 
     def scan_overhead(self):
         overhead = 0
+        total_true_pts = 0
         for i in range(len(self.benefit)):
             true_pts = self.original_counts[i:i+self.k].sum()
+            total_true_pts += true_pts
             is_accessed = self.counts[i:i+self.k].sum() > 0
             accessed = is_accessed * self.cumul_count
-            overhead += self.removed + accessed - true_pts
-        return overhead
+            overhead += self.removed[i:i+self.k].sum() + accessed - true_pts
+        return overhead, total_true_pts
 
