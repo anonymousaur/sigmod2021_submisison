@@ -3,9 +3,10 @@
 #include <vector>
 #include <memory>
 
+#include "types.h"
 #include "indexer.h"
 #include "secondary_indexer.h"
-#include "types.h"
+#include "correlation_indexer.h"
 
 /*
  * An index that combines other indexes together. It allows at most one primary index and multiple
@@ -18,6 +19,8 @@ class CompositeIndex : public Indexer<D> {
 
     bool SetPrimaryIndex(std::unique_ptr<Indexer<D>> primary_index);
 
+    bool AddCorrelationIndex(std::unique_ptr<CorrelationIndexer<D>> corr_index);
+
     bool AddSecondaryIndex(std::unique_ptr<SecondaryIndexer<D>> index);
 
     virtual void Init(PointIterator<D> start, PointIterator<D> end) override;
@@ -28,6 +31,9 @@ class CompositeIndex : public Indexer<D> {
         size_t s = 0;
         if (primary_index_ != NULL) {
             s += primary_index_->Size();
+        }
+        for (auto& ci : correlation_indexes_) {
+            s += ci->Size();
         }
         for (auto& si : secondary_indexes_) {
             s += si->Size();
@@ -40,6 +46,10 @@ class CompositeIndex : public Indexer<D> {
     // Public for testing.
     std::vector<PhysicalIndexRange> Merge(const std::vector<PhysicalIndexRange>&,
             const std::vector<size_t>&) const;
+
+    // Given two sets of 
+    std::vector<PhysicalIndexRange> Intersect(const std::vector<PhysicalIndexRange>&,
+            const std::vector<PhysicalIndexRange>&) const;
 
     // Given two sets of indexes to scan from secondary indexes, intersect them to get the ones that
     // actually match.
@@ -57,6 +67,7 @@ class CompositeIndex : public Indexer<D> {
     // modified.
     std::unique_ptr<Indexer<D>> primary_index_;
     std::vector<std::unique_ptr<SecondaryIndexer<D>>> secondary_indexes_;
+    std::vector<std::unique_ptr<CorrelationIndexer<D>>> correlation_indexes_;
 };
 
 #include "../src/composite_index.hpp"

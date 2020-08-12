@@ -17,6 +17,9 @@ template <size_t D>
 class QueryEngine {
   public:
     QueryEngine(std::unique_ptr<Dataset<D>> dataset,
+            std::unique_ptr<Indexer<D>> indexer);
+    
+    QueryEngine(std::unique_ptr<Dataset<D>> dataset,
             std::unique_ptr<Indexer<D>> indexer,
             std::unique_ptr<Rewriter<D>> rewriter);
 
@@ -26,7 +29,6 @@ class QueryEngine {
     std::unique_ptr<Dataset<D>> dataset_;
     std::unique_ptr<Indexer<D>> indexer_;
     std::unique_ptr<Rewriter<D>> rewriter_;
-
     // The columns that are indexed by this indexer, saved for faster access.
     std::unordered_set<size_t> columns_;
 };

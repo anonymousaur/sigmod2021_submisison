@@ -122,10 +122,11 @@ template <size_t D>
 class SumVisitor: public Visitor<D> {
 public:
     Scalar sum;
-    SumVisitor() : sum(0) {}
+    size_t column;
+    SumVisitor(size_t col) : sum(0), column(col) {}
 
     void visit(const PointRef<D>& p) override {
-        sum += p.dataset->GetCoord(p.idx, 0);
+        sum += p.dataset->GetCoord(p.idx, column);
     }
 };
 
@@ -133,10 +134,11 @@ template <size_t D>
 class SumProductVisitor: public Visitor<D> {
 public:
     Scalar sum;
-    SumProductVisitor() : sum(0) {}
+    size_t column1, column2;
+    SumProductVisitor(size_t col1, size_t col2) : sum(0), column1(col1), column2(col2) {}
 
     void visit(const PointRef<D>& p) override {
-        sum += p.dataset->GetCoord(p.idx, 0) * p.dataset->GetCoord(p.idx, 1);
+        sum += p.dataset->GetCoord(p.idx, column1) * p.dataset->GetCoord(p.idx, column2);
     }
 };
 

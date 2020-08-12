@@ -37,6 +37,10 @@ include_directories("include")
 include_directories(/usr/local/include)
 file(GLOB SOURCES "src/*.cpp")
 add_executable(benchmark_categorical_index benchmark_categorical_index.cpp ${SOURCES})
+add_executable(run_mapped_correlation_index run_correlation_index.cpp ${SOURCES})
+add_executable(run_linear_correlation_index run_correlation_index.cpp ${SOURCES})
+target_compile_definitions(run_linear_correlation_index PUBLIC USE_LINEAR=1)
+
 
 configure_file(CMakeLists.txt.in googletest-download/CMakeLists.txt)
 execute_process(COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .

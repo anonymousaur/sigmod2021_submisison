@@ -22,7 +22,7 @@ class BinarySearchIndex : public Indexer<D> {
     void SetData(Dataset<D>* dataset_);
 
     size_t Size() const override {
-        return sorted_data_.size() * sizeof(Scalar);
+        return 0;
     }
 
   private:

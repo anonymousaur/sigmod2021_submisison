@@ -12,9 +12,10 @@
 #include "primary_btree_index.h"
 #include "dummy_index.h"
 #include "secondary_btree_index.h"
-#include "single_column_rewriter.h"
 #include "row_order_dataset.h"
 #include "inmemory_column_order_dataset.h"
+#include "linear_model_rewriter.h"
+#include "mapped_correlation_index.h"
 #include "query_engine.h"
 #include "visitor.h"
 #include "utils.h"
@@ -25,7 +26,7 @@ using namespace std;
 int main(int argc, char** argv) {
     if (argc < 4) {
         std::cerr << "Expected arguments: --dataset --workload --visitor "
-            << "[--outlier-list] [--mapping] [--page-size] [--composite-gap]"
+            << "[--outlier-list] [--mapping-file] [--target-bucket-file] [--page-size] [--composite-gap]"
             << "[--save] [--results_folder]" << std::endl;
         return EX_USAGE;
     }
@@ -37,6 +38,8 @@ int main(int argc, char** argv) {
     auto data = load_binary_file< Point<DIM> >(dataset_file);
     std::string workload_file = GetRequired(flags, "workload");
     vector< Query<DIM> > workload = load_query_file<DIM>(workload_file);
+    std::cout << "Loaded " << workload.size() << " queries" << std::endl;
+
     std::string outlier_list_file = GetWithDefault(flags, "outlier-list", "");
     std::vector<size_t> outlier_list;
     if (!outlier_list_file.empty()) {
@@ -50,33 +53,24 @@ int main(int argc, char** argv) {
 
     // Define datacubes
     auto index_creation_start = std::chrono::high_resolution_clock::now();
-    auto rewriter = std::make_unique<SingleColumnRewriter<DIM>>(GetRequired(flags, "mapping"));
-    std::cout << "Loaded rewriter with mapped dimension " << rewriter->MappedDim()
-        << " and target " << rewriter->TargetDim() << std::endl;
     
     int page_size = std::stoi(GetWithDefault(flags, "page-size", "1"));
     int composite_gap = std::stoi(GetWithDefault(flags, "composite-gap", "1"));
     // Outlier with primary index
-    assert (outlier_list.size() > 0);
     auto indexer = std::make_unique<OutlierIndex<DIM>>(outlier_list);
+#ifdef USE_LINEAR
+    auto rewriter = std::make_unique<LinearModelRewriter<DIM>>(GetRequired(flags, "rewriter"));
+    size_t mapped_dim = rewriter->MappedDim();    
+    auto main_indexer = std::make_unique<BinarySearchIndex<DIM>>(rewriter->TargetDim());
+#else
+    auto corr_index = std::make_unique<MappedCorrelationIndex<DIM>>(
+                GetRequired(flags, "mapping-file"), GetRequired(flags, "target-bucket-file"));
+    size_t mapped_dim = corr_index->GetMappedColumn();
     auto main_indexer = std::make_unique<CompositeIndex<DIM>>(composite_gap);
-    main_indexer->SetPrimaryIndex(std::make_unique<BinarySearchIndex<DIM>>(rewriter->TargetDim()));
-    main_indexer->AddSecondaryIndex(std::make_unique<SecondaryBTreeIndex<DIM>>(rewriter->MappedDim())); 
+    main_indexer->AddCorrelationIndex(std::move(corr_index));
+#endif
+    indexer->SetOutlierIndexer(std::make_unique<BinarySearchIndex<DIM>>(mapped_dim));
     indexer->SetIndexer(std::move(main_indexer));
-    indexer->SetOutlierIndexer(std::make_unique<BinarySearchIndex<DIM>>(rewriter->MappedDim()));
-
-    //indexer->SetIndexer(std::make_unique<PrimaryBTreeIndex<DIM>>(rewriter->TargetDim(), page_size));
-    //indexer->SetOutlierIndexer(std::make_unique<PrimaryBTreeIndex<DIM>>(rewriter->MappedDim(), page_size));
-    //indexer->SetIndexer(std::make_unique<BinarySearchIndex<DIM>>(rewriter->TargetDim()));
-
-    // CM with primary index
-    //auto indexer = std::make_unique<CompositeIndex<DIM>>(composite_gap);
-    //indexer->SetPrimaryIndex(std::make_unique<PrimaryBTreeIndex<DIM>>(rewriter->TargetDim(), page_size));
-    //indexer->SetPrimaryIndex(std::make_unique<BinarySearchIndex<DIM>>(rewriter->TargetDim()));
-    //indexer->AddSecondaryIndex(std::make_unique<SecondaryBTreeIndex<DIM>>(rewriter->MappedDim())); 
-    
-    // Full scan
-    //auto indexer = std::make_unique<DummyIndex<DIM>>();
 
     std::cout << "Sorting data..." << std::endl;   
     auto before_sort_time = std::chrono::high_resolution_clock::now();
@@ -97,7 +91,11 @@ int main(int argc, char** argv) {
     std::cout << "Compression time: " << compression_time / 1e9 << "s" << std::endl;
     std::cout << "Indexer sizei (B): " << indexer->Size() << std::endl;
 
+#ifdef USE_LINEAR
     QueryEngine<DIM> engine(std::move(dataset), std::move(indexer), std::move(rewriter));
+#else
+    QueryEngine<DIM> engine(std::move(dataset), std::move(indexer));
+#endif
     auto index_creation_finish = std::chrono::high_resolution_clock::now();
     auto index_creation_time = std::chrono::duration_cast<std::chrono::nanoseconds>(index_creation_finish-index_creation_start).count();
     std::cout << "Index creation time: " << index_creation_time / 1e9 << "s" << std::endl;
@@ -109,6 +107,8 @@ int main(int argc, char** argv) {
     Scalar aggregate = 0;
     std::vector<double> query_times;
     query_times.reserve(num_queries);
+    std::vector<size_t> results;
+    results.reserve(num_queries);
     std::string visitor_type = std::string(GetRequired(flags, "visitor"));
     std::string timeout_str = GetWithDefault(flags, "timeout", "no");
     bool timeout = timeout_str == "yes";
@@ -120,6 +120,7 @@ int main(int argc, char** argv) {
             CollectVisitor<DIM> visitor;
             engine.Execute(q, visitor);
             total += visitor.result_set.size();
+            results.push_back(visitor.result_set.size());
             auto query_end = std::chrono::high_resolution_clock::now();
             query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
         }
@@ -130,6 +131,7 @@ int main(int argc, char** argv) {
             CountVisitor<DIM> visitor;
             engine.Execute(q, visitor);
             total += visitor.count;
+            results.push_back(visitor.count);
             auto query_end = std::chrono::high_resolution_clock::now();
             query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
         }
@@ -140,6 +142,7 @@ int main(int argc, char** argv) {
             IndexVisitor<DIM> visitor;
             engine.Execute(q, visitor);
             total += visitor.indexes.size();
+            results.push_back(visitor.indexes.size());
             auto query_end = std::chrono::high_resolution_clock::now();
             query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
         }
@@ -153,21 +156,22 @@ int main(int argc, char** argv) {
             query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
         }
     } else if (visitor_type == std::string("sum")) {
-       for (int i = 0; i < num_queries; i++) {
-           Query<DIM> q = workload[i];
-           auto query_start = std::chrono::high_resolution_clock::now();
-           SumVisitor<DIM> visitor(0);
-           engine.Execute(q, visitor);
-           aggregate += visitor.sum;
-           auto query_end = std::chrono::high_resolution_clock::now();
-           query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
-           if (timeout && i % 10 == 0) {
-               if (std::chrono::duration_cast<std::chrono::seconds>(query_end - start).count() > 60) {
-                   num_queries = i;
-                   break;
-               }
-           }
-       }
+        for (int i = 0; i < num_queries; i++) {
+            Query<DIM> q = workload[i];
+            auto query_start = std::chrono::high_resolution_clock::now();
+            SumVisitor<DIM> visitor(1);
+            engine.Execute(q, visitor);
+            aggregate += visitor.sum;
+            results.push_back(visitor.sum);
+            auto query_end = std::chrono::high_resolution_clock::now();
+            query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
+            if (timeout && i % 10 == 0) {
+                if (std::chrono::duration_cast<std::chrono::seconds>(query_end - start).count() > 60) {
+                    num_queries = i;
+                    break;
+                }
+            }
+        }
     }
     auto finish = std::chrono::high_resolution_clock::now();
     auto tt = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
@@ -181,5 +185,8 @@ int main(int argc, char** argv) {
     std::cout << "Total queries: " << num_queries << std::endl;
     std::cout << "Avg range query time (ns): " << tt / ((double) num_queries) << std::endl;
     
+    /*for (auto r: results) {
+        std::cout << r << std::endl;
+    } */   
     return 0;
 }

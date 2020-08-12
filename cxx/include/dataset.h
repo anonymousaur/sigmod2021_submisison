@@ -42,19 +42,6 @@ class Dataset {
         return valid;
     }
     
-    // Return a bitstring denoting all the indices between start (inclusive) and end (exclusive),
-    // whose coordinate at dimension `dim` falls in one of the ranges in `rset`. 
-    // Precondition: end - start <= 64. If end - start < 64, the remaining most significant bits should be 0.
-    virtual uint64_t GetCoordInRanges(size_t start, size_t end, size_t dim, const RangeSet& rset) const {
-        uint64_t valid = 0;
-        for (size_t i = start; i < end; i++) {
-            valid <<= 1;
-            Scalar c = GetCoord(i, dim);
-            valid |= rset.Test(c);
-        }
-        return valid;
-    }
-    
     virtual size_t Size() const = 0;
     virtual size_t NumDims() const = 0;
     // size of the dataset in bytes

@@ -40,7 +40,7 @@ typedef double ldouble;
 #endif
 
 // This type must match the type of the preprocessed data.
-typedef double Scalar;
+typedef int64_t Scalar;
 struct ScalarRange {
     Scalar first;
     Scalar second;
@@ -117,29 +117,13 @@ struct PhysicalIndexRange {
     }
 };
 
-struct RangeSet {
-    // Compare ranges by their end value.
-    struct rangecomp {
-          bool operator() (const ScalarRange& lhs, const ScalarRange& rhs) const {
-              return lhs.second < rhs.second;
-          } 
-    };
-    std::set<ScalarRange, rangecomp> ranges;
-    RangeSet() : ranges() {}
-    RangeSet(std::vector<ScalarRange>::const_iterator begin,
-           std::vector<ScalarRange>::const_iterator end) : ranges(begin, end) {}
-    // Adds this range to the set. The endpoints of this range are both inclusive.
-    // We assume there are no overlapping ranges.
-    void AddRange(const ScalarRange& sr) { ranges.insert(sr); }
-    void AddRanges(std::vector<ScalarRange>::const_iterator begin,
-           std::vector<ScalarRange>::const_iterator end) {
-        ranges.insert(begin, end);
+// Compare ranges by their end value.
+struct ScalarRangeComp {
+    bool operator() (const ScalarRange& lhs, const ScalarRange& rhs) const {
+        return lhs.first < rhs.first;
     } 
-    // Tests whether a point is in one of the ranges in this set.
-    bool Test(Scalar s) const {
-        const auto loc = ranges.lower_bound({s, s});
-        // If the start of the pointed to range is less than the test value, the point must be in a
-        // valid range.
-        return (loc != ranges.end() && loc->first <= s);
-    }
 };
+
+typedef std::vector<PhysicalIndexRange> IndexRange;
+typedef std::vector<PhysicalIndex> IndexList;
+

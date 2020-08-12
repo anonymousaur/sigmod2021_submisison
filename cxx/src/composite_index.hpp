@@ -4,6 +4,8 @@
 #include <vector>
 #include <cassert>
 
+#include "merge_utils.h"
+
 template <size_t D>
 CompositeIndex<D>::CompositeIndex(size_t gap)
     : Indexer<D>(), gap_threshold_(gap), secondary_indexes_() {}
@@ -20,6 +22,13 @@ template <size_t D>
 bool CompositeIndex<D>::AddSecondaryIndex(std::unique_ptr<SecondaryIndexer<D>> index) {
     assert (index != NULL);
     secondary_indexes_.push_back(std::move(index));
+    return true;
+}
+
+template <size_t D>
+bool CompositeIndex<D>::AddCorrelationIndex(std::unique_ptr<CorrelationIndexer<D>> index) {
+    assert (index != NULL);
+    correlation_indexes_.push_back(std::move(index));
     return true;
 }
 
@@ -97,17 +106,26 @@ std::vector<PhysicalIndexRange> CompositeIndex<D>::Ranges(const Query<D>& q) con
     if (primary_index_ != NULL) {
         ranges = primary_index_->Ranges(q);
     }
-    // Even though the query values may be sorted, the ranges we get might not be.
+    /*
+     * // Even though the query values may be sorted, the ranges we get might not be.
     std::sort(ranges.begin(), ranges.end(),
         [](const PhysicalIndexRange& a, const PhysicalIndexRange& b) {
             return a.start < b.start;
-        });
-    
+        });*/
+   
+    for (auto& ci : correlation_indexes_) {
+        if (!q.filters[ci->GetMappedColumn()].present) {
+            continue;
+        }
+        IndexRange r = ci->Ranges(q);
+        ranges = MergeUtils::Intersect(ranges, r);
+    }
+
     // For each secondary index, merge the secondary index matches into it.
     std::vector<size_t> matches;
     bool first_match = true;
     for (auto& si : secondary_indexes_) {
-        if (not q.filters[si->GetColumn()].present) {
+        if (!q.filters[si->GetColumn()].present) {
             continue;
         }
         std::vector<size_t> next_matches = si->Matches(q);
@@ -116,12 +134,12 @@ std::vector<PhysicalIndexRange> CompositeIndex<D>::Ranges(const Query<D>& q) con
             matches = next_matches;
             first_match = false;
         } else {
-            matches = Intersect(matches, next_matches);
+            matches = MergeUtils::Intersect(matches, next_matches);
         }
     }
     // Now merge the combined secondary indexes with the primary index range.
     if (!first_match) {
-        ranges = Merge(ranges, matches);
+        ranges = MergeUtils::Merge(ranges, matches, gap_threshold_);
     }
     return ranges;
 }

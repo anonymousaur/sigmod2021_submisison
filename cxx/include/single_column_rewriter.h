@@ -26,6 +26,22 @@ class SingleColumnRewriter : public Rewriter<D> {
         return target_dim_;
     }
 
+    size_t Size() const override {
+        size_t s = 0;
+        if (cmap_categorical_.size() > 0) {
+            for (auto it = cmap_categorical_.cbegin(); it != cmap_categorical_.cend(); it++) {
+                s += sizeof(Scalar) + it->second.size() * sizeof(Scalar);
+            }
+        }
+        if (cmap_continuous_.size() > 0) {
+            for (auto it = cmap_continuous_.cbegin(); it != cmap_continuous_.cend(); it++) {
+                s += sizeof(Scalar) + it->second.size() * sizeof(ScalarRange);
+            }
+        }
+        s += 2 * sizeof(size_t);
+        return s;
+    }
+
     Query<D> Rewrite(const Query<D>& q) const override;
     
     void Load(const std::string& filename);

@@ -9,6 +9,12 @@
 template <size_t D>
 QueryEngine<D>::QueryEngine(
         std::unique_ptr<Dataset<D>> dataset,
+        std::unique_ptr<Indexer<D>> indexer)
+    : QueryEngine<D>(std::move(dataset), std::move(indexer), nullptr) {}
+
+template <size_t D>
+QueryEngine<D>::QueryEngine(
+        std::unique_ptr<Dataset<D>> dataset,
         std::unique_ptr<Indexer<D>> indexer,
         std::unique_ptr<Rewriter<D>> rewriter)
     : dataset_(std::move(dataset)),
@@ -36,8 +42,8 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
             }
         }
     }
-    Query<D> new_q = rewriter_->Rewrite(q);
-    for (PhysicalIndexRange range : indexer_->Ranges(new_q)) {
+    Query<D> newq = rewriter_ ? rewriter_->Rewrite(q) : q;
+    for (PhysicalIndexRange range : indexer_->Ranges(q)) {
         if (exact) {
             visitor.visitExactRange(dataset_.get(), range.start, range.end);
         }
