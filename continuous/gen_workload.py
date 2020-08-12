@@ -46,14 +46,14 @@ class QueryGen(object):
     def get_range(self, pt, dims, widths):
         ranges = {}
         for d, w in zip(dims, widths):
-            ranges[d] = (pt[d]-w/2, pt[d]+w/2)
+            ranges[d] = tuple(np.array([pt[d]-w/2, pt[d]+w/2]).astype(args.dtype))
         return ranges
 
     def query_str(self, ranges):
         s = "==========\n"
         for d in range(self.dim):
             if d in ranges:
-                s += "ranges %f %f\n" % (ranges[d][0], ranges[d][1])
+                s += "ranges %s %s\n" % (str(ranges[d][0]), str(ranges[d][1]))
             else:
                 s += "none\n"
         return s
