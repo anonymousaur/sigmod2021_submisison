@@ -17,7 +17,7 @@ map_spec = Schema(3, bucket_width=10000)
 # Each query goes over one bucket in the mapped dimension
 k = 1
 
-s = Stasher(data, map_spec, target_specs, k, alpha=2)
+s = Stasher(data, map_spec, target_specs, k, alpha=0.5)
 print("Finished initializing Stasher, finding outliers")
 outlier_ixs, stats = s.stash_outliers_parallel(15, max_outliers_per_bucket=None)
 uix = np.unique(outlier_ixs, return_counts=True)

@@ -16,8 +16,10 @@ class SingleColumnStasher(object):
     # saved. A higher value of alpha will prioritize keeping the outlier number low (i.e. reducing
     # the size of storage for the outliers), and a lower value will prioritize minimizing scan
     # overhead.
-    def __init__(self, counts, k, alpha=1):
+    def __init__(self, counts, num_points, total_overhead, k, alpha=1):
         self.counts = counts
+        self.npoints = num_points
+        self.orig_overhead = total_overhead
         self.alpha = alpha
         self.original_counts = np.copy(counts)
         self.k = k
@@ -116,13 +118,13 @@ class SingleColumnStasher(object):
             z_lefts = np.minimum(z_lefts, np.roll(self.zeros_left, -i))
             z_rights = np.maximum(z_rights, np.roll(self.zeros_right, -i))
         q_elim = z_rights - z_lefts - self.k
-        tot_nq = len(self.counts) - self.k + 1
+        factor = self.orig_overhead / self.npoints
         
         buckets_to_stash = None
         # Start by assuming nothing else is stashed.
         leftover = self.counts.sum() - self.counts
         for nit in range(niters):
-            benefits = q_elim*leftover - self.alpha*tot_nq*combined_counts
+            benefits = q_elim*leftover - self.alpha*factor*combined_counts
             # These are the indices with the overflow from np.roll. Remove them.
             ixs_to_stash = benefits > 0
             ixs_to_stash[len(benefits)-self.k+1:] = False
@@ -159,7 +161,7 @@ class SingleColumnStasher(object):
             z_rights = np.maximum(z_rights, np.roll(self.zeros_right, -i))
         q_elim = z_rights - z_lefts - self.k
         cumul_cnt = self.counts.sum()
-        tot_nq = len(self.counts) - self.k + 1
+        factor = self.orig_overhead / self.npoints
         
         p = INIT_STASH_P
         buckets_to_stash = np.random.choice([0,1], len(self.counts), replace=True, p=[1-p, p]).astype(bool)
@@ -169,7 +171,7 @@ class SingleColumnStasher(object):
         self.outliers_by_iteration.append(self.counts[buckets_to_stash].sum())
 
         for nit in range(niters):
-            benefits = q_elim*leftover - self.alpha*tot_nq*combined_counts
+            benefits = q_elim*leftover - self.alpha*factor*combined_counts
             # These are the indices with the overflow from np.roll. Remove them.
             ixs_to_stash = benefits > 0
             ixs_to_stash[len(benefits)-self.k+1:] = False
@@ -205,30 +207,23 @@ class SingleColumnStasher(object):
             z_lefts = np.minimum(z_lefts, np.roll(self.zeros_left, -i))
             z_rights = np.maximum(z_rights, np.roll(self.zeros_right, -i))
         q_elim = z_rights - z_lefts - self.k
-        print(q_elim)
         cumul_cnt = self.counts.sum()
-        tot_nq = len(self.counts) - self.k + 1
+        factor = self.orig_overhead / self.npoints
 
         # for each bucket, the minimum number of leftover points that must be unstashed for stashing that
         # bucket to be worth it. If there are more leftover, it's only more of a reason to stash
         # that bucket.
-        min_leftover = (self.alpha*tot_nq*combined_counts) / q_elim
-        sort_ix = np.argsort(min_leftover)
-        min_leftover = min_leftover[sort_ix]
-        print("Sorted buckets:", self.counts[sort_ix])
+        sort_ix = np.argsort(combined_counts)
         # Go through each bucket in order and stash it, until the min_leftover[i] exceeds the
         # amount stashed so far
         stashed = 0
         bucket_ixs_stashed = None
-        for i, m in enumerate(min_leftover):
-            c = self.counts[sort_ix[i]]
+        for i, c in enumerate(combined_counts[sort_ix]):
             marginal_overhead_red = cumul_cnt - stashed - c
             # All the unstashed buckets don't have to count this bucket as extra overhead
             marginal_overhead_red += (len(self.counts) - i - 1)*c
             # The marginal decreases because the others don't have as high a leftover.
-            marginal_storage_gain = self.alpha*tot_nq*c
-            print("Bucket with", c, ", marginal = %d - %d" % (marginal_overhead_red,
-                marginal_storage_gain))
+            marginal_storage_gain = self.alpha*c*factor
             if marginal_overhead_red - marginal_storage_gain <= 0:
                 bucket_ixs_stashed = sort_ix[:i]
                 break
@@ -256,9 +251,8 @@ class SingleColumnStasher(object):
         return overhead, total_true_pts
 
     def cost(self):
-        tot_nq = len(self.counts) - self.k + 1
         s = self.scan_overhead()[0]
-        cost_model = s + self.alpha*tot_nq*self.removed.sum()
+        cost_model = s/self.orig_overhead + self.alpha*self.removed.sum()/self.npoints
         return cost_model, s
 
     # At this point in the computation, get a boolean array with True if the corresponding index in

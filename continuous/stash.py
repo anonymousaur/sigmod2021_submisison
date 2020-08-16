@@ -23,8 +23,10 @@ def stash_outliers_single(args):
     offset = args["offset"]
     kr = args["k"]
     max_pts_to_stash = args["stash_limit"]
-    target_bix = args["target_bucket_ix"];
+    target_bix = args["target_bucket_ix"]
     alpha = args["alpha"]
+    num_points = args["num_points"]
+    tot_overhead = args["original_overhead"]
     stash_size = 0
     outlier_ixs = []
     if len(pts) == 0:
@@ -42,14 +44,14 @@ def stash_outliers_single(args):
     mb_bounds = [pts[0]-kr, pts[-1]+kr+1]
     map_buckets = np.arange(mb_bounds[0], mb_bounds[1], dtype=np.int32)
     counts = np.histogram(pts, bins=map_buckets)[0]
-    scs = SingleColumnStasher(counts, kr, alpha=alpha)
+    scs = SingleColumnStasher(counts, num_points, tot_overhead, kr, alpha=alpha)
     initial_overhead, true_pts = scs.scan_overhead()
-    start_ixs, end_ixs = [], []
-    
-    s, bucket_ixs = scs.pop_all_sort()
-    stash_size = s
-    starts = np.searchsorted(pts, bucket_ixs + mb_bounds[0])
-    ends = np.searchsorted(pts, bucket_ixs + 1 + mb_bounds[0])
+   
+    if max_pts_to_stash is None or max_pts_to_stash > 0:
+        s, bucket_ixs = scs.pop_all_sort()
+        stash_size = s
+        starts = np.searchsorted(pts, bucket_ixs + mb_bounds[0])
+        ends = np.searchsorted(pts, bucket_ixs + 1 + mb_bounds[0])
     #while max_pts_to_stash is None or stash_size < max_pts_to_stash:
     #    s, _, ixs = scs.pop_best()
     #    if s is None:
@@ -60,9 +62,11 @@ def stash_outliers_single(args):
     #    end_ixs.append(ixs2)
     #starts = np.searchsorted(pts, start_ixs) + offset
     #ends = np.searchsorted(pts, end_ixs) + offset
-    for (s, e) in zip(starts, ends):
-        outlier_ixs.extend(range(s, e))
-    final_cost, final_so_si = scs.cost()
+        for (s, e) in zip(starts, ends):
+            outlier_ixs.extend(range(s, e))
+    final_cost, final_so_si = 0, 0
+    if tot_overhead > 0:
+        final_cost, final_so_si = scs.cost()
     inlier_buckets = scs.inlier_buckets() + mb_bounds[0]
 
     return {
@@ -77,30 +81,44 @@ def stash_outliers_single(args):
         "outlier_iterations": scs.get_outliers_by_iteration()
         }
 
+class DummyBar(object):
+    def __init__(self):
+        pass
+    def next(self):
+        pass
+    def finish(self):
+        pass
+
 class Stasher(object):
     # pts is a numpy array of shape n x 2. The 0th column is the mapped dimension, and the 1st
     # column is the target dimension.
     # k is the average length of the ranges on the mapped dimension.
     # buckets is an integer list of bucket ids for each point (size = (len(pts),))
-    def __init__(self, data, mapped_schema, target_schemas, k, alpha=1):
+    def __init__(self, data, mapped_schema, target_schemas, nproc=1):
+        self.using_display = True
         map_bucketer = Bucketer([mapped_schema], data)
         self.mapped_buckets = map_bucketer.get_ids()
         target_bucketer = Bucketer(target_schemas, data)
         self.target_buckets = target_bucketer.get_ids()
+        
+        self.num_mapped_buckets = self.mapped_buckets.max()+1
+        self.data = data
+        self.outlier_indexes = []
+        self.mapped_dim = map_bucketer.spec[0].dim
+        self.target_dims = [s.dim for s in target_bucketer.spec]
+        self.nproc = nproc
         
         self.ccm = ccm.ContinuousCorrelationMap()
         self.ccm.set_mapped_bucketer(map_bucketer)
         self.ccm.set_target_bucketer(target_bucketer)
         print("Done finding bucket IDs")
         
-        self.kr = k
-        self.alpha = alpha
         self.bucket_ranges = self.bucketize()
-        self.num_mapped_buckets = self.mapped_buckets.max()+1
-        self.data = data
-        self.outlier_indexes = []
-        self.mapped_dim = map_bucketer.spec[0].dim
-        self.target_dims = [s.dim for s in target_bucketer.spec]
+        self.original_overhead = self.compute_overhead(nproc=nproc)
+        # if True, will show progress bars
+
+    def display(self, d):
+        self.using_display = d
 
     def bucketize(self):
         # Bucket along the target dimension as the primary key. Secondary key is the mapped dimension
@@ -109,51 +127,66 @@ class Stasher(object):
         mmax = self.mapped_buckets.max() + 1
         sortkey = self.target_buckets * mmax + self.mapped_buckets
         print("Max sortkey = ", sortkey.max())
-        print("# Target buckets = %d" % self.target_buckets.max())
-        print("# Mapped buckets = %d" % self.mapped_buckets.max())
+        print("# Target buckets (dim %d) = %d" % (self.mapped_dim, self.target_buckets.max()))
+        print("# Mapped buckets (dims %s) = %d" % (str(self.target_dims), self.mapped_buckets.max()))
         self.sort_ixs = np.argsort(sortkey)
         self.mapped_buckets = self.mapped_buckets[self.sort_ixs]
         self.target_buckets = self.target_buckets[self.sort_ixs]
+        self.data = self.data[self.sort_ixs]
         uq, first, counts = np.unique(self.target_buckets, return_index=True, return_counts=True)
         self.bucket_ids = uq
 
         buckets = [(0,0)] * len(uq)
+        prev_end = 0
         for i, (u, f, c) in enumerate(zip(uq, first, counts)):
             assert c > 0
-            buckets[i] = (f, f+c) 
+            assert f == prev_end
+            buckets[i] = (f, f+c)
+            prev_end = f+c
         return buckets
 
     def buckethash(self, row, col):
         return row * self.nbuckets_mapped + col
 
-    def stash_outliers_parallel(self, nproc, max_outliers_per_bucket=None):
-        print("Finding outliers with nproc = %d, alpha=%d, k = %d, max outliers = %s" % \
-                (nproc, self.alpha, self.kr, str(max_outliers_per_bucket)))
+    def chunks(self, k, alpha, overhead, max_outliers_per_bucket=None):
+        for bix, b in zip(self.bucket_ids, self.bucket_ranges):
+            yield {
+                "points": self.mapped_buckets[b[0]:b[1]],
+                "offset": b[0],
+                "k": k,
+                "target_bucket_ix": bix,
+                "stash_limit": max_outliers_per_bucket,
+                "alpha": alpha,
+                "num_points": len(self.mapped_buckets),
+                "original_overhead": overhead 
+                }
+    
+    def stash_outliers_parallel(self, kr, alpha, max_outliers_per_bucket=None):
+        print("Finding outliers with nproc = %d, alpha=%f, k = %d, max outliers = %s" % \
+                (self.nproc, alpha, kr, str(max_outliers_per_bucket)))
         cuml_outliers = []
         cuml_stats = defaultdict(float)
-        
-        def chunks():
-            for bix, b in zip(self.bucket_ids, self.bucket_ranges):
-                yield {
-                    "points": self.mapped_buckets[b[0]:b[1]],
-                    "offset": b[0],
-                    "k": self.kr,
-                    "target_bucket_ix": bix,
-                    "stash_limit": max_outliers_per_bucket,
-                    "alpha": self.alpha
-                    }
-    
+
+        # Use the parallelism to compute hte total overhead
+
+        original_so = self.original_overhead
+        print("Initial scan overhead:", original_so)
+
         # Map each mapped bucket to a list of target buckets that have inlier points.
         bucketmap = defaultdict(list)
         outlier_seq = None
         total_cost = 0
 
-        with Pool(processes=nproc) as pool:
+        with Pool(processes=self.nproc) as pool:
             inc = 10
-            bar = ShadyBar(max=len(self.bucket_ids)/inc)
+            bar = DummyBar()
+            if self.using_display:
+                bar = ShadyBar("Finding outliers", max=len(self.bucket_ids)/inc)
             i = 0
-            cs = max(1, int(len(self.bucket_ids)/nproc/50))
-            for r in pool.imap_unordered(stash_outliers_single, chunks(), chunksize=cs):
+            cs = max(1, int(len(self.bucket_ids)/self.nproc/50))
+            for r in pool.imap_unordered(stash_outliers_single,
+                    self.chunks(kr, alpha, original_so, max_outliers_per_bucket),
+                    chunksize=cs):
                 cuml_outliers.extend(np.unique(r['outlier_ixs']))
                 cuml_stats["final_overhead"] += r["final_overhead"]
                 cuml_stats["initial_overhead"] += r["initial_overhead"]
@@ -175,7 +208,9 @@ class Stasher(object):
 
         print("Outlier sequence:", outlier_seq)
         print("Total cost:", total_cost)
-
+        
+        cuml_stats["data_size"] = len(self.data)
+        cuml_stats["total_cost"] = total_cost
         self.outlier_indexes = cuml_outliers
         # ndices in the original dataset
         orig_outlier_list = self.sort_ixs[cuml_outliers]
@@ -203,31 +238,34 @@ class Stasher(object):
         outlier_ix_mask = np.isin(all_pts_hashes, buckets_to_stash)
         return np.where(outlier_ix_mask)[0], data
 
-    def compute_overhead(self, mapped_inlier_buckets, target_inlier_buckets):
-        mapmax = mapped_inlier_buckets.max()
-        uq_targets, target_counts = np.unique(target_inlier_buckets, return_counts=True)
-        bar = ShadyBar("Computing full overhead", max=mapmax-self.kr+1)
-        overhead = 0
-        for i in range(mapmax-self.kr+1):
-            matches = np.logical_and(mapped_inlier_buckets >= i, mapped_inlier_buckets < i+self.kr)
-            accessed_target_buckets = target_inlier_buckets[matches]
-            unique_accessed = np.unique(accessed_target_buckets)
-            accessed_ixs = np.searchsorted(uq_targets, unique_accessed)
-            total_pts_accessed = target_counts[accessed_ixs].sum()
-            overhead += total_pts_accessed - matches.sum()
-            bar.next()
-        bar.finish()
-        return overhead
+    def compute_overhead(self, nproc=1):
+        original_so = 0
+        with Pool(processes=nproc) as pool:
+            inc = 10
+            bar = DummyBar()
+            if self.using_display:
+                bar = ShadyBar("Computing overhead", max=len(self.bucket_ids)/inc)
+            i = 0
+            cs = max(1, int(len(self.bucket_ids)/nproc/50))
+            for r in pool.imap_unordered(stash_outliers_single, self.chunks(1, 0, 0), chunksize=cs):
+                original_so += r["initial_overhead"]
+                i += 1
+                if i % inc == 0:
+                    bar.next()
+            bar.finish()
+        return original_so
 
     def write_mapping(self, prefix):
-        map_str = str(self.mapped_dim) + "_" + "_".join(str(td) for td in self.target_dims)
-        prefix += "." + map_str
+        dirname = os.path.dirname(prefix)
+        if not os.path.isdir(dirname):
+            os.makedirs(dirname)
+            print('Created output directory', dirname)
 
         rel_dims = [self.mapped_dim]
         rel_dims.extend(self.target_dims)
         # Mapped dimension is always the 0th column in the new datset. The target dimensions are in
         # order of their schema after that.
-        self.data = self.data[:, rel_dims]
+        sorted_data = self.data[:, rel_dims]
 
         self.ccm.mapped_dim = 0
         self.ccm.target_dims = list(range(1, len(rel_dims)))
@@ -237,13 +275,12 @@ class Stasher(object):
         f.close()
 
         ntarget_buckets = self.target_buckets.max() + 1
-        self.data = self.data[self.sort_ixs, :]
-        self.target_buckets[self.outlier_indexes] = OUTLIER_BUCKET
-        six = np.argsort(self.target_buckets)
-        self.data = self.data[six, :]
-        self.target_buckets = self.target_buckets[six]
-        self.mapped_buckets = self.mapped_buckets[six]
-        uq_buckets, first, count = np.unique(self.target_buckets, return_index=True,
+        sorted_target_buckets = np.copy(self.target_buckets)
+        sorted_target_buckets[self.outlier_indexes] = OUTLIER_BUCKET
+        six = np.argsort(sorted_target_buckets)
+        sorted_data = sorted_data[six, :]
+        sorted_target_buckets = sorted_target_buckets[six]
+        uq_buckets, first, count = np.unique(sorted_target_buckets, return_index=True,
                 return_counts=True)
 
 
@@ -269,8 +306,8 @@ class Stasher(object):
         outlier_list_file = prefix + ".outliers"
         target_bucket_file = prefix + ".targets"
         
-        self.data.tofile(datafile)
-        np.arange(outlier_start_ix, len(self.data)).astype(int).tofile(outlier_list_file)
+        sorted_data.tofile(datafile)
+        np.arange(outlier_start_ix, len(sorted_data)).astype(int).tofile(outlier_list_file)
         
         # Write the mapping from target bucket to physical index range in the sorted data 
         fobj = open(target_bucket_file, 'w')

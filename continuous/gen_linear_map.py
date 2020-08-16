@@ -24,10 +24,10 @@ parser.add_argument("--target-col",
         default=1,
         type=int,
         help="Index of column being mapped to (default 1)")
-parser.add_argument("--outlier-pct",
+parser.add_argument("--num-outliers",
         required=True,
-        type=float,
-        help="Fraction (max 100) of points to be considered outliers")
+        type=int,
+        help="Number of points to be considered outliers")
 parser.add_argument("--out-prefix",
         required=True,
         type=str,
@@ -50,7 +50,8 @@ slope, intcpt, _, _, _ = stats.linregress(x, y)
 coeff = [slope, intcpt]
 err = y - (coeff[0]*x + coeff[1])
 # Deviation above which points are considered outliers
-outlier_offset = np.percentile(np.abs(err), 100 - args.outlier_pct)
+ptl = 100. - float(args.num_outliers) / len(x)
+outlier_offset = np.percentile(np.abs(err), ptl)
 outlier_offset = outlier_offset if coeff[0] > 0 else -outlier_offset;
 low_bnd = coeff[0]*x + coeff[1] - outlier_offset
 high_bnd = coeff[0]*x + coeff[1] + outlier_offset
