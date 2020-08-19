@@ -123,22 +123,23 @@ std::vector<PhysicalIndexRange> CompositeIndex<D>::Ranges(const Query<D>& q) con
 
     // For each secondary index, merge the secondary index matches into it.
     std::vector<size_t> matches;
-    bool first_match = true;
+    size_t num_secondary_matches = 0;
     for (auto& si : secondary_indexes_) {
         if (!q.filters[si->GetColumn()].present) {
             continue;
         }
         std::vector<size_t> next_matches = si->Matches(q);
-        std::sort(next_matches.begin(), next_matches.end());
-        if (first_match) {
+        std::sort(matches.begin(), matches.end());
+        if (num_secondary_matches == 0) {
             matches = next_matches;
-            first_match = false;
         } else {
+            // Only sort if we absolutely have to
             matches = MergeUtils::Intersect(matches, next_matches);
         }
+        num_secondary_matches += 1;
     }
     // Now merge the combined secondary indexes with the primary index range.
-    if (!first_match) {
+    if (matches.size() > 0) {
         ranges = MergeUtils::Merge(ranges, matches, gap_threshold_);
     }
     return ranges;

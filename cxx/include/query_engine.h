@@ -25,12 +25,18 @@ class QueryEngine {
 
     void Execute(const Query<D>& q, Visitor<D>& visitor);
 
+    long long ScannedPoints() const {
+        return scanned_points_;
+    }
+
   private:
     std::unique_ptr<Dataset<D>> dataset_;
     std::unique_ptr<Indexer<D>> indexer_;
     std::unique_ptr<Rewriter<D>> rewriter_;
     // The columns that are indexed by this indexer, saved for faster access.
     std::unordered_set<size_t> columns_;
+
+    long long scanned_points_;
 };
 
 #include "../src/query_engine.hpp"

@@ -128,17 +128,17 @@ IndexRange MappedCorrelationIndex<D>::Ranges(const Query<D>& q) const {
     }
     IndexRange ranges;
     for (auto it = startit; it != endit; it++) {
-        /*std::cout << "Matched map bucket " << it->first << " with "
-            << it->second.size() << " ranges:" << std::endl;
-        for (auto r : it->second) {
-            std::cout << "\t" << r.start << " - " << r.end << std::endl;
-        }*/
+        //std::cout << "Matched map bucket " << it->first << " with "
+        //    << it->second.size() << " ranges:" << std::endl;
+        //for (auto r : it->second) {
+        //    std::cout << "\t" << r.start << " - " << r.end << std::endl;
+        //}
         ranges = MergeUtils::Union(ranges, it->second);
-        /*std::cout << "Merged ranges:" << std::endl;
-        for (auto r : ranges) {
-            std::cout << "\t" << r.start << " - " << r.end << std::endl;
-        }*/
     }
+    //std::cout << "Merged ranges (" << ranges.size() << "):" << std::endl;
+    //for (auto r : ranges) {
+    //    std::cout << "\t" << r.start << " - " << r.end << std::endl;
+    //}
     return ranges;
 }
 

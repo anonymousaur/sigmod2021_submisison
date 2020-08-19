@@ -46,7 +46,7 @@ std::vector<PhysicalIndexRange> OutlierIndex<D>::Ranges(const Query<D>& q) const
         for (PhysicalIndexRange r : outlier_ranges) {
             ranges.emplace_back(r.start + outlier_start_ix_, r.end + outlier_start_ix_);
         }
-    } else {
+    } else if (outlier_start_ix_ < data_size_) {
         ranges.emplace_back(outlier_start_ix_, data_size_);
     }
     return ranges;

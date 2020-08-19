@@ -16,18 +16,18 @@ class SecondaryBTreeIndex : public SecondaryIndexer<D> {
     std::vector<size_t> Matches(const Query<D>& q) const override; 
     
     size_t Size() const override {
-        size_t s = 0;
-        size_t keys = 0;
-        Scalar prev_key = std::numeric_limits<Scalar>::max();
+        size_t unique_keys = 0;
+        size_t total_entries = btree_.size();
+        Scalar prev_key = std::numeric_limits<Scalar>::lowest();
         for (auto it = btree_.begin(); it != btree_.end(); it++) {
-            s += sizeof(size_t);
-            if (s == prev_key) {
-                keys++;
+            assert (it->first >= prev_key);
+            if (it->first > prev_key) {
+                unique_keys++;
+                prev_key = it->first;
             }
-            prev_key = s;
         }
-        // The extra factor of 2 is for the binary tree overhead
-        return s + 2*keys*sizeof(Scalar);
+        // Based on: https://code.google.com/archive/p/cpp-btree/
+        return 3*unique_keys*sizeof(Scalar) + total_entries*sizeof(size_t);
     }
 
   private:

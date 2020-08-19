@@ -33,7 +33,7 @@ class OutlierIndex : public Indexer<D> {
         }
         // Add in the size of the outliers, since we're assuming that we copy them for each
         // correlation that exists.
-        s += (data_size_ - outlier_start_ix_) * sizeof(Point<D>);
+        //s += (data_size_ - outlier_start_ix_) * sizeof(Point<D>);
         return s;
     }
 

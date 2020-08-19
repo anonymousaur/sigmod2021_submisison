@@ -25,7 +25,7 @@ class BinarySearchIndex : public Indexer<D> {
         return 0;
     }
 
-  private:
+  protected:
     size_t LocateLeft(Scalar val) const;
     size_t LocateRight(Scalar val) const;
 

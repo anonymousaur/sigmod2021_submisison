@@ -18,27 +18,33 @@
  */
 template <size_t D>
 class Visitor {
-   public:
-     // Aggregate the given point as part of the result set.
-     virtual void visit(const PointRef<D>& p) = 0;
-     // A way to batch process many results. `valids` tells us which indices between `start_ix`
-     // (inclusive) and `end_ix` (exclusive) are valid results and should be aggregated.
-     virtual void visitRange(const Dataset<D>* dataset, size_t start_ix, size_t end_ix, uint64_t valids) {
-        uint64_t mask = 1UL << (end_ix - start_ix - 1);
-        for (size_t i = start_ix; i < end_ix; i++) {
-            if (valids & mask) {
-                visit(PointRef<D>(dataset, i));
-            }
-            mask >>= 1;
-        }
-     }
-     // All the points in the given range are valid results and should be aggregated.
-     // This functionality is exposed because it allows for aggregation-specific optimizations.
-     virtual void visitExactRange(const Dataset<D>* dataset, size_t start_ix, size_t end_ix) {
-        for (size_t i = start_ix; i < end_ix; i++) {
-            visit(PointRef<D>(dataset, i));
-        }
-     };
+  protected:
+    long scanned_points_ = 0;
+  public:
+
+    long ScannedPoints() { return scanned_points_; }
+    // Aggregate the given point as part of the result set.
+    virtual void visit(const PointRef<D>& p) = 0;
+    // A way to batch process many results. `valids` tells us which indices between `start_ix`
+    // (inclusive) and `end_ix` (exclusive) are valid results and should be aggregated.
+    virtual void visitRange(const Dataset<D>* dataset, size_t start_ix, size_t end_ix, uint64_t valids) {
+       uint64_t mask = 1UL << (end_ix - start_ix - 1);
+       scanned_points_ += end_ix - start_ix;
+       for (size_t i = start_ix; i < end_ix; i++) {
+           if (valids & mask) {
+               visit(PointRef<D>(dataset, i));
+           }
+           mask >>= 1;
+       }
+    }
+    // All the points in the given range are valid results and should be aggregated.
+    // This functionality is exposed because it allows for aggregation-specific optimizations.
+    virtual void visitExactRange(const Dataset<D>* dataset, size_t start_ix, size_t end_ix) {
+       scanned_points_ += end_ix - start_ix;
+       for (size_t i = start_ix; i < end_ix; i++) {
+           visit(PointRef<D>(dataset, i));
+       }
+    };
 };
 
 /**
@@ -84,12 +90,14 @@ public:
         count += 1;
     }
 
-    void visitRange(const Dataset<D>*, size_t, size_t, uint64_t valids) override {
+    void visitRange(const Dataset<D>*, size_t start, size_t end, uint64_t valids) override {
         count += __builtin_popcountll(valids);
+        this->scanned_points_ += end - start;
     }
 
     void visitExactRange(const Dataset<D>*, size_t start, size_t end) override {
         count += end - start;
+        this->scanned_points_ += count;
     }
 };
 

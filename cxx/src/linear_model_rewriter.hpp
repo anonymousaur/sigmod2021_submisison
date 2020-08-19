@@ -7,6 +7,7 @@
 
 #include "types.h"
 #include "file_utils.h"
+#include "utils.h"
 
 template <size_t D>
 LinearModelRewriter<D>::LinearModelRewriter(const std::string& filename) {

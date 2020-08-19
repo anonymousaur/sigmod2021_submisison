@@ -72,6 +72,7 @@ std::vector<Query<D>> load_query_file(const std::string& filename) {
         }
         q_list.push_back(q);
     }
+    file.close();
     return q_list;
 }
 

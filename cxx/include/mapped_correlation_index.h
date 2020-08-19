@@ -25,7 +25,8 @@ class MappedCorrelationIndex : public CorrelationIndexer<D> {
             s += it->second.size() * sizeof(PhysicalIndexRange);
             s += sizeof(ScalarRange);
         }
-        return s;
+        // Factor of 2 is safe. Switch to the google c++ btree for a lower factor.
+        return 2*s;
     }
 
   private:

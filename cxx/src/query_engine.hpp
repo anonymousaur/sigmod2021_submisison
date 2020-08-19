@@ -20,7 +20,8 @@ QueryEngine<D>::QueryEngine(
     : dataset_(std::move(dataset)),
       indexer_(std::move(indexer)),
       rewriter_(std::move(rewriter)),
-      columns_(indexer_->GetColumns()) {}
+      columns_(indexer_->GetColumns()),
+      scanned_points_(0) {}
 
 template <size_t D>
 void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
@@ -43,7 +44,8 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
         }
     }
     Query<D> newq = rewriter_ ? rewriter_->Rewrite(q) : q;
-    for (PhysicalIndexRange range : indexer_->Ranges(q)) {
+    for (PhysicalIndexRange range : indexer_->Ranges(newq)) {
+        scanned_points_ += range.end - range.start;
         if (exact) {
             visitor.visitExactRange(dataset_.get(), range.start, range.end);
         }
