@@ -40,18 +40,20 @@ def stash_outliers_single(args):
             "inlier_buckets": [],
             "outlier_iterations": []
             }
-
+    # Make sure this is sorted
+    assert np.all(np.diff(pts) >= 0)
     mb_bounds = [pts[0]-kr, pts[-1]+kr+1]
     map_buckets = np.arange(mb_bounds[0], mb_bounds[1], dtype=np.int32)
     counts = np.histogram(pts, bins=map_buckets)[0]
+    counts_cpy = np.copy(counts)
     scs = SingleColumnStasher(counts, num_points, tot_overhead, kr, alpha=alpha)
     initial_overhead, true_pts = scs.scan_overhead()
    
     if max_pts_to_stash is None or max_pts_to_stash > 0:
         s, bucket_ixs = scs.pop_all_sort()
         stash_size = s
-        starts = np.searchsorted(pts, bucket_ixs + mb_bounds[0])
-        ends = np.searchsorted(pts, bucket_ixs + 1 + mb_bounds[0])
+        starts = np.searchsorted(pts, bucket_ixs + mb_bounds[0]) + offset
+        ends = np.searchsorted(pts, bucket_ixs + 1 + mb_bounds[0]) + offset
     #while max_pts_to_stash is None or stash_size < max_pts_to_stash:
     #    s, _, ixs = scs.pop_best()
     #    if s is None:
@@ -100,7 +102,8 @@ class Stasher(object):
         self.mapped_buckets = map_bucketer.get_ids()
         target_bucketer = Bucketer(target_schemas, data)
         self.target_buckets = target_bucketer.get_ids()
-        
+        print(self.mapped_buckets[124349541], self.target_buckets[124349541])
+
         self.num_mapped_buckets = self.mapped_buckets.max()+1
         self.data = data
         self.outlier_indexes = []
@@ -193,6 +196,7 @@ class Stasher(object):
                 cuml_stats["final_overhead_with_index"] += r["final_overhead_si"]
                 cuml_stats["total_true_points"] += r["total_true_pts"]
                 target_bix = r["target_bucket_id"]
+                
                 # TODO: do this at the end (in write_mapping) so we can use it for CM too
                 for mb in r["inlier_buckets"]:
                     bucketmap[mb].append(target_bix)

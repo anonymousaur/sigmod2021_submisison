@@ -218,16 +218,24 @@ class SingleColumnStasher(object):
         # amount stashed so far
         stashed = 0
         bucket_ixs_stashed = None
+        min_bucket = len(combined_counts)
         for i, c in enumerate(combined_counts[sort_ix]):
+            if c == 0:
+                continue
+            min_bucket = min(min_bucket, i)
+            # By stashing this bucket, the marginal overhead is reduced.
             marginal_overhead_red = cumul_cnt - stashed - c
             # All the unstashed buckets don't have to count this bucket as extra overhead
             marginal_overhead_red += (len(self.counts) - i - 1)*c
-            # The marginal decreases because the others don't have as high a leftover.
+            # However, the marginal storage factor is positive.
             marginal_storage_gain = self.alpha*c*factor
-            if marginal_overhead_red - marginal_storage_gain <= 0:
-                bucket_ixs_stashed = sort_ix[:i]
+            if marginal_overhead_red <= marginal_storage_gain:
+                bucket_ixs_stashed = sort_ix[min_bucket:i]
                 break
             stashed += c
+        if bucket_ixs_stashed is None:
+            bucket_ixs_stashed = range(min_bucket, len(combined_counts))
+        
         self.removed[bucket_ixs_stashed] = self.counts[bucket_ixs_stashed]
         self.counts[bucket_ixs_stashed] = 0
         return stashed, bucket_ixs_stashed
