@@ -10,13 +10,12 @@ then
     exit 0
 fi
 
-./build2/run_mapped_correlation_index \
+./build2/run_secondary_index \
     --name=$NAME \
     --dataset=$ARGPREFIX.data \
     --workload=$WORKLOAD \
     --visitor=sum \
-    --mapping-file=$ARGPREFIX.mapping \
-    --outlier-list=$ARGPREFIX.outliers \
-    --target-bucket-file=$ARGPREFIX.targets \
+    --mapped-dim=0 \
+    --target-dim=1 \
     --save=results/$NAME.dat
 

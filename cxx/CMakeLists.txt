@@ -40,6 +40,10 @@ add_executable(benchmark_categorical_index benchmark_categorical_index.cpp ${SOU
 add_executable(run_mapped_correlation_index run_correlation_index.cpp ${SOURCES})
 add_executable(run_linear_correlation_index run_correlation_index.cpp ${SOURCES})
 target_compile_definitions(run_linear_correlation_index PUBLIC USE_LINEAR=1)
+add_executable(run_secondary_index run_correlation_index.cpp ${SOURCES})
+target_compile_definitions(run_secondary_index PUBLIC USE_SECONDARY=1)
+add_executable(run_full_scan run_correlation_index.cpp ${SOURCES})
+target_compile_definitions(run_full_scan PUBLIC FULL_SCAN=1)
 
 
 configure_file(CMakeLists.txt.in googletest-download/CMakeLists.txt)
