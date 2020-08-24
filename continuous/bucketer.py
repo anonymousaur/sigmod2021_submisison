@@ -2,17 +2,19 @@ import numpy as np
 import time
 
 class Schema(object):
-    def __init__(self, dim, num_buckets=None, bucket_width=None, categorical=False, mode='flattened'):
+    def __init__(self, dim, num_buckets=None, bucket_width=None, bucket_ids=None, categorical=False, mode='flattened'):
         valid = int(num_buckets is not None)
         valid += int(bucket_width is not None)
         valid += int(categorical)
+        valid += int(bucket_ids is not None)
         assert valid == 1, \
-                "Exactly one of num_buckets and bucket_width and categorical can be specified"
+                "Exactly one of num_buckets, bucket_width, bucket_ids, and categorical can be specified"
         self.dim = dim
         self.num_buckets = num_buckets
         self.bucket_width = bucket_width
         self.categorical = categorical
         self.mode = mode
+        self.bucket_ids = bucket_ids
 
     # Given some bucket ids, if there are gaps (e.g., there is no point with bucket 10), shift the
     # bucket IDs so there are no gaps
@@ -40,31 +42,34 @@ class Schema(object):
         bmin, bmax = b.min(), b.max()
         return b.astype(int), np.arange(bmin, bmax+2) * self.bucket_width
 
-    def bucketize(self, data):
+    def bucketize(self, data, sequentialize=False):
         buckets = None
         bounds = None
         if self.bucket_width is not None:
             buckets, bounds = self.bucketize_with_width(data)
         elif self.num_buckets is not None:
             buckets, bounds = self.bucketize_with_nbuckets(data)
+        elif self.bucket_ids is not None:
+            buckets, bounds = self.bucket_ids, None
         elif self.categorical:
             buckets, bounds = data, data
-        #self.sequentialize(buckets)
+        if sequentialize:
+            buckets = self.sequentialize(buckets)
         return buckets - buckets.min(), bounds 
     
 class Bucketer(object):
     # Spec is a list of Schema objects
-    def __init__(self, spec, data, mode='flattened'):
+    def __init__(self, spec, data, mode='flattened', sequentialize=False):
         self.spec = spec
         self.ids = None
         self.ranges = None
-        self.bucket(data)
+        self.bucket(data, sequentialize)
 
-    def bucket(self, data):
+    def bucket(self, data, sequentialize=False):
         ranges = []
         ids = np.zeros((len(data), len(self.spec)), dtype=int)
         for j, s in enumerate(self.spec):
-            ids[:,j], r = s.bucketize(data[:,s.dim])
+            ids[:,j], r = s.bucketize(data[:,s.dim], sequentialize=sequentialize)
             ranges.append(r)
         folded_ids = np.zeros(ids.shape[0], dtype=int)
         scale = 1

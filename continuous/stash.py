@@ -98,11 +98,12 @@ class Stasher(object):
     # buckets is an integer list of bucket ids for each point (size = (len(pts),))
     def __init__(self, data, mapped_schema, target_schemas, nproc=1):
         self.using_display = True
-        map_bucketer = Bucketer([mapped_schema], data)
+        map_bucketer = Bucketer([mapped_schema], data, sequentialize=True)
         self.mapped_buckets = map_bucketer.get_ids()
         target_bucketer = Bucketer(target_schemas, data)
         self.target_buckets = target_bucketer.get_ids()
-        print(self.mapped_buckets[124349541], self.target_buckets[124349541])
+        # Make sure data is already sorted in order of the target bucket value.
+        assert np.all(np.diff(self.target_buckets) >= 0)
 
         self.num_mapped_buckets = self.mapped_buckets.max()+1
         self.data = data
@@ -129,22 +130,21 @@ class Stasher(object):
         # Sort by bucket id then by mapped value
         mmax = self.mapped_buckets.max() + 1
         sortkey = self.target_buckets * mmax + self.mapped_buckets
-        print("Max sortkey = ", sortkey.max())
-        print("# Target buckets (dim %d) = %d" % (self.mapped_dim, self.target_buckets.max()))
-        print("# Mapped buckets (dims %s) = %d" % (str(self.target_dims), self.mapped_buckets.max()))
         self.sort_ixs = np.argsort(sortkey)
         self.mapped_buckets = self.mapped_buckets[self.sort_ixs]
         self.target_buckets = self.target_buckets[self.sort_ixs]
         self.data = self.data[self.sort_ixs]
         uq, first, counts = np.unique(self.target_buckets, return_index=True, return_counts=True)
-        self.bucket_ids = uq
+        print("# Mapped buckets (dim %d) = %d" % (self.mapped_dim,
+            len(np.unique(self.mapped_buckets))))
+        print("# Target buckets (dims %s) = %d" % (str(self.target_dims), len(uq)))
 
-        buckets = [(0,0)] * len(uq)
+        buckets = {}
         prev_end = 0
         for i, (u, f, c) in enumerate(zip(uq, first, counts)):
             assert c > 0
             assert f == prev_end
-            buckets[i] = (f, f+c)
+            buckets[u] = (f, f+c)
             prev_end = f+c
         return buckets
 
@@ -152,7 +152,7 @@ class Stasher(object):
         return row * self.nbuckets_mapped + col
 
     def chunks(self, k, alpha, overhead, max_outliers_per_bucket=None):
-        for bix, b in zip(self.bucket_ids, self.bucket_ranges):
+        for bix, b in self.bucket_ranges.items():
             yield {
                 "points": self.mapped_buckets[b[0]:b[1]],
                 "offset": b[0],
@@ -184,9 +184,9 @@ class Stasher(object):
             inc = 10
             bar = DummyBar()
             if self.using_display:
-                bar = ShadyBar("Finding outliers", max=len(self.bucket_ids)/inc)
+                bar = ShadyBar("Finding outliers", max=len(self.bucket_ranges)/inc)
             i = 0
-            cs = max(1, int(len(self.bucket_ids)/self.nproc/50))
+            cs = max(1, int(len(self.bucket_ranges)/self.nproc/50))
             for r in pool.imap_unordered(stash_outliers_single,
                     self.chunks(kr, alpha, original_so, max_outliers_per_bucket),
                     chunksize=cs):
@@ -248,9 +248,9 @@ class Stasher(object):
             inc = 10
             bar = DummyBar()
             if self.using_display:
-                bar = ShadyBar("Computing overhead", max=len(self.bucket_ids)/inc)
+                bar = ShadyBar("Computing overhead", max=len(self.bucket_ranges)/inc)
             i = 0
-            cs = max(1, int(len(self.bucket_ids)/nproc/50))
+            cs = max(1, int(len(self.bucket_ranges)/nproc/50))
             for r in pool.imap_unordered(stash_outliers_single, self.chunks(1, 0, 0), chunksize=cs):
                 original_so += r["initial_overhead"]
                 i += 1
@@ -269,55 +269,26 @@ class Stasher(object):
         rel_dims.extend(self.target_dims)
         # Mapped dimension is always the 0th column in the new datset. The target dimensions are in
         # order of their schema after that.
-        sorted_data = self.data[:, rel_dims]
-
-        self.ccm.mapped_dim = 0
-        self.ccm.target_dims = list(range(1, len(rel_dims)))
+        
         mapping_file = prefix + ".mapping"
         f = open(mapping_file, 'w')
         self.ccm.write(f)
         f.close()
 
         ntarget_buckets = self.target_buckets.max() + 1
-        sorted_target_buckets = np.copy(self.target_buckets)
-        sorted_target_buckets[self.outlier_indexes] = OUTLIER_BUCKET
-        six = np.argsort(sorted_target_buckets)
-        sorted_data = sorted_data[six, :]
-        sorted_target_buckets = sorted_target_buckets[six]
-        uq_buckets, first, count = np.unique(sorted_target_buckets, return_index=True,
-                return_counts=True)
-
-
-        # Validate that the data is consistent
-        prev = 0
-        outlier_start_ix = len(self.data)
-        for ub, f, c in zip(uq_buckets, first, count):
-            assert f == prev
-            prev = f + c
-            if ub == OUTLIER_BUCKET:
-                outlier_start_ix = f
-                assert f+c == len(self.data)
-        
-        # Make sure we got a valid outlier list
-        assert len(self.outlier_indexes) == 0 or outlier_start_ix < len(self.data)
-        
-        #true_overhead = self.compute_overhead(self.mapped_buckets[:outlier_start_ix],
-        #        self.target_buckets[:outlier_start_ix])
-        #print("Got true overhead", true_overhead)
 
         # Dump information for the indexer
-        datafile = prefix + ".data"
         outlier_list_file = prefix + ".outliers"
         target_bucket_file = prefix + ".targets"
         
-        sorted_data.tofile(datafile)
-        np.arange(outlier_start_ix, len(sorted_data)).astype(int).tofile(outlier_list_file)
+        # These are the outlier indexes in the original dataset
+        self.sort_ixs[self.outlier_indexes].astype(int).tofile(outlier_list_file)
         
         # Write the mapping from target bucket to physical index range in the sorted data 
         fobj = open(target_bucket_file, 'w')
-        fobj.write("target_index_ranges\t%d\n" % len(uq_buckets))
-        for ub, f, c in zip(uq_buckets, first, count):
+        fobj.write("target_index_ranges\t%d\n" % len(self.bucket_ranges))
+        for ub, (f, e) in self.bucket_ranges.items():
             if ub == OUTLIER_BUCKET:
                 continue
-            fobj.write("%d\t%d\t%d\n" % (ub, f, f+c))
+            fobj.write("%d\t%d\t%d\n" % (ub, f, e))
         

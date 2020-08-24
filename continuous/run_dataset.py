@@ -11,15 +11,13 @@ def run(args):
     name = args["name"]
     datafile = args["datafile"]
     ncols = args["ncols"]
-    map_dims = args["map_dims"]
-    target_dims = args["target_dims"]
+    map_spec = args["map_spec"]
+    target_specs = args["target_spec"]
     k = args["k"]
     alphas = args["alphas"]
     
     data = np.fromfile(datafile, dtype=int).reshape(-1, ncols)
     print("Loaded %d data points" % len(data))
-    target_specs = [Schema(d, bucket_width=w) for d, w in target_dims]
-    map_spec = Schema(map_dims[0], bucket_width=map_dims[1])
     
     s = Stasher(data, map_spec, target_specs, nproc=15)
     print("Finished initializing Stasher, finding outliers")
@@ -37,7 +35,8 @@ def run(args):
         final_so = stats["final_overhead_with_index"]
         print("Overhead: %d => %d (%.02f%% reduction)" % (init_so, final_so, 100*(init_so - final_so)/init_so))
         cm_prefix = "cm" if run_cm else "a%d" % a
-        prefix = "%s/%s_%s.k%d.%d_%s" % (name, name, cm_prefix, k, map_dims[0], '_'.join(str(td[0]) for td in target_dims)) 
+        prefix = "%s/%s_%s.k%d.%d_%s" % (name, name, cm_prefix, k, map_spec.dim,
+                '_'.join(str(td.dim) for td in target_specs)) 
         s.write_mapping(prefix)
         
         w = open(prefix + ".stats", 'w')

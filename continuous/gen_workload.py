@@ -37,17 +37,28 @@ class QueryGen(object):
 
     def gen_uniform(self, dims, widths, n, outfile):
         print("Generating uniform queries...")
-        assert len(dims) == 1
-        mapped_dim = dims[0]
-        w = widths[0]
-        vals = self.data[:, mapped_dim]
-        buckets = np.unique(np.floor((vals - vals.min())/(w/2)))
+        maxes = []
+        bucket_hashes = np.zeros(len(self.data))
+        for d, w in zip(dims, widths):
+            vals = self.data[:, d]
+            b = np.floor((vals - vals.min())/(w/2)).astype(int)
+            maxes.append(b.max()+1)
+            bucket_hashes = (b.max()+1)*bucket_hashes + b
+        
         # First, select a bucket uniformly at random. Then select a starting point within that
         # bucket uniformly at random.
-        b = np.random.choice(buckets, size=n, replace=True)
-        p = np.random.uniform(0, w/2, size=n)
+        unique_buckets = np.unique(bucket_hashes)
+        bucket_sample_ixs = np.random.choice(len(unique_buckets), size=n, replace=True)
+        bucket_sample = unique_buckets[bucket_sample_ixs]
+        bucket_coords = np.zeros((len(bucket_sample), len(dims)))
+        for i, m in enumerate(reversed(maxes)):
+            bucket_coords[:, -i-1] = bucket_sample % m
+            bucket_sample /= m
+        offsets = np.zeros((len(dims), n))
         pts = np.zeros((n, self.dim))
-        pts[:, mapped_dim] = b*w/2 + vals.min() + p
+        for i, (d, w) in enumerate(zip(dims, widths)):
+            offsets = np.random.uniform(0, w/2, size=len(bucket_sample))
+            pts[:, d] = bucket_coords[:, i]*w/2 + self.data[:,d].min() + offsets[i]
         f = open(outfile, 'w')
         for i in range(n):
             r = self.get_range(pts[i], dims, widths)
