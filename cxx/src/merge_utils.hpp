@@ -1,9 +1,9 @@
 #include "merge_utils.h"
 
 
-IndexRange MergeUtils::Intersect(const IndexRange& first, const IndexRange& second) {
+IndexRangeList MergeUtils::Intersect(const IndexRangeList& first, const IndexRangeList& second) {
     // Assumes both ranges are already sorted.
-    IndexRange final_ranges;
+    IndexRangeList final_ranges;
     size_t i = 0, j = 0;
     size_t count = 0;
     PhysicalIndex cur_first = first[0].start, cur_second = second[0].start;
@@ -59,9 +59,74 @@ IndexRange MergeUtils::Intersect(const IndexRange& first, const IndexRange& seco
     return final_ranges;
 }
 
-IndexRange MergeUtils::Union(const IndexRange& first, const IndexRange& second) {
+IndexList MergeUtils::Intersect(const IndexList& list1, const IndexList& list2) {
+    IndexList output;
+    size_t i = 0, j = 0;
+    while (i < list1.size() && j < list2.size()) {
+        if (list1[i] < list2[j]) {
+            i++;
+        } else if (list1[i] > list2[j]) {
+            j++;
+        } else {
+            output.push_back(list1[i]);
+            i++;
+            j++;
+        }
+    }
+    return output;
+}
+
+PhysicalIndexSet MergeUtils::Intersect(const PhysicalIndexSet& set1, const PhysicalIndexSet& set2) {
     // Assumes both ranges are already sorted.
-    IndexRange final_ranges;
+    IndexRangeList final_ranges;
+    IndexList final_list;
+    final_list.reserve(set1.list.size() + set2.list.size());
+    auto first_list_it = set1.list.cbegin();
+    auto first_range_it = set1.ranges.cbegin();
+    auto second_list_it = set2.list.cbegin();
+    auto second_range_it = set2.ranges.cbegin();
+    // We're just intersecting the lists here.    
+    while (true) {
+        bool first_list_done = first_list_it == set1.list.cend();
+        bool second_list_done = second_list_it == set2.list.cend();
+        if (first_list_done && second_list_done) {
+            break;
+        }
+        if (!first_list_done && (second_list_done || *first_list_it < *second_list_it)) {
+            bool second_range_ready = second_range_it != set2.ranges.cend();
+            if (second_range_ready && *first_list_it >= second_range_it->end) {
+                second_range_it++;
+            } else if (second_range_ready && *first_list_it >= second_range_it->start) {
+                final_list.push_back(*first_list_it);
+                first_list_it++;
+            } else {
+                first_list_it++;
+            }
+        } else if (!second_list_done && (first_list_done || *second_list_it < *first_list_it)) {
+            bool first_range_ready = first_range_it != set1.ranges.cend();
+            if (first_range_ready && *second_list_it >= first_range_it->end) {
+                first_range_it++;
+            } else if (first_range_ready && *second_list_it >= first_range_it->start) {
+                final_list.push_back(*second_list_it);
+                second_list_it++;
+            } else {
+                second_list_it++;
+            }
+        } else {
+            // list indexes are equal to each other.
+            final_list.push_back(*first_list_it);
+            first_list_it++;
+            second_list_it++;
+        }
+    }
+    final_list.shrink_to_fit();
+    return { MergeUtils::Intersect(set1.ranges, set2.ranges), final_list };
+}
+    
+
+IndexRangeList MergeUtils::Union(const IndexRangeList& first, const IndexRangeList& second) {
+    // Assumes both ranges are already sorted.
+    IndexRangeList final_ranges;
     size_t i = 0, j = 0;
     size_t count = 0;
     PhysicalIndex cur_first = first[0].start, cur_second = second[0].start;
@@ -122,30 +187,40 @@ IndexRange MergeUtils::Union(const IndexRange& first, const IndexRange& second) 
     return final_ranges;
 }
 
-IndexList MergeUtils::Intersect(const IndexList& list1, const IndexList& list2) {
-    IndexList output;
-    size_t i = 0, j = 0;
-    while (i < list1.size() && j < list2.size()) {
-        if (list1[i] < list2[j]) {
-            i++;
-        } else if (list1[i] > list2[j]) {
-            j++;
-        } else {
-            output.push_back(list1[i]);
-            i++;
-            j++;
-        }
-    }
-    return output;
-}
-
-IndexRange MergeUtils::Merge(const IndexRange& ranges, const IndexList& idxs, size_t gap_threshold) {
-    IndexRange output;
-    if (ranges.empty() || idxs.empty()) {
-        return output;
+PhysicalIndexSet MergeUtils::Union(const IndexRangeList& ranges, const IndexList& list) {
+    // Just eliminate the indexes that fall inside one of the ranges. Assumes both are sorted.
+    if (ranges.size() == 0) {
+        return {{}, list};
     }
     size_t cur_range_ix = 0;
-    PhysicalIndexRange running = {0, 0};
+    size_t list_ix = 0;
+    IndexList pruned;
+    pruned.reserve(list.size());
+    while (list_ix < list.size()) {
+        size_t index = list[list_ix];
+        if (index < ranges[cur_range_ix].start) {
+            pruned.push_back(index);
+            list_ix++;
+        }
+        else if (index > ranges[cur_range_ix].end) {
+            cur_range_ix++;
+        } else {
+            // The index is in a range.
+            list_ix++;
+        }
+    }
+    pruned.shrink_to_fit();
+    return {ranges, pruned};
+}
+
+
+IndexList MergeUtils::Merge(const IndexRangeList& ranges, const IndexList& idxs) {
+    if (ranges.empty() || idxs.empty()) {
+        return {};
+    }
+    size_t cur_range_ix = 0;
+    IndexList output;
+    output.reserve(idxs.size());
     for (size_t ix : idxs) {
        while (ix >= ranges[cur_range_ix].end) {
            cur_range_ix++;
@@ -156,19 +231,9 @@ IndexRange MergeUtils::Merge(const IndexRange& ranges, const IndexList& idxs, si
        if (ix < ranges[cur_range_ix].start) {
            continue;
        }
-       if (running.start >= running.end) {
-           running.start = ix;
-           running.end = ix+1;
-       } else {
-           if (running.end + gap_threshold > ix) {
-               running.end = ix+1;
-           } else {
-               output.push_back(running);
-               running = {ix, ix+1};
-           }
-       }
+       output.push_back(ix);
     }
-    output.push_back(running);
+    output.shrink_to_fit();
     return output;
 }
 

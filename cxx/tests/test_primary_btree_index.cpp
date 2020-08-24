@@ -36,7 +36,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[0] = {.present = false};
         q.filters[1] = {.present = true, .is_range = false, .ranges = {}, .values = {1}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{0, 12}};
         EXPECT_EQ(ranges.size(), want.size());
         for (size_t i = 0; i < want.size(); i++) {
@@ -52,7 +52,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {2,4}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{1, 3}, {4, 5}};
         EXPECT_EQ(ranges.size(), want.size());
         for (size_t i = 0; i < want.size(); i++) {
@@ -68,7 +68,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {2,3}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         // Should merge [1, 3] and [3, 4]
         std::vector<PhysicalIndexRange> want = {{1, 4}};
         EXPECT_EQ(ranges.size(), want.size());
@@ -85,7 +85,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {4}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         EXPECT_EQ(ranges.size(), 0);
     }
 

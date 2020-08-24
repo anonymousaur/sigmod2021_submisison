@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "types.h"
-#include "indexer.h"
+#include "primary_indexer.h"
 #include "secondary_indexer.h"
 #include "correlation_indexer.h"
 
@@ -13,11 +13,11 @@
  * secondary indexes.
  */
 template <size_t D>
-class CompositeIndex : public Indexer<D> {
+class CompositeIndex : public PrimaryIndexer<D> {
   public:
     CompositeIndex(size_t gap_threshold);
 
-    bool SetPrimaryIndex(std::unique_ptr<Indexer<D>> primary_index);
+    bool SetPrimaryIndex(std::unique_ptr<PrimaryIndexer<D>> primary_index);
 
     bool AddCorrelationIndex(std::unique_ptr<CorrelationIndexer<D>> corr_index);
 
@@ -25,7 +25,7 @@ class CompositeIndex : public Indexer<D> {
 
     virtual void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    std::vector<PhysicalIndexRange> Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
     
     size_t Size() const override {
         size_t s = 0;
@@ -65,7 +65,7 @@ class CompositeIndex : public Indexer<D> {
 
     // Once the primary index has been given to the composite index, it should no longer be
     // modified.
-    std::unique_ptr<Indexer<D>> primary_index_;
+    std::unique_ptr<PrimaryIndexer<D>> primary_index_;
     std::vector<std::unique_ptr<SecondaryIndexer<D>>> secondary_indexes_;
     std::vector<std::unique_ptr<CorrelationIndexer<D>>> correlation_indexes_;
 };

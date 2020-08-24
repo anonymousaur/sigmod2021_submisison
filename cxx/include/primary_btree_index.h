@@ -3,11 +3,11 @@
 #include <vector>
 #include <map>
 
-#include "indexer.h"
+#include "primary_indexer.h"
 #include "types.h"
 
 template <size_t D>
-class PrimaryBTreeIndex : public Indexer<D> {
+class PrimaryBTreeIndex : public PrimaryIndexer<D> {
   public:
     struct Page {
         // Inclusive range
@@ -23,7 +23,7 @@ class PrimaryBTreeIndex : public Indexer<D> {
 
     virtual void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    std::vector<PhysicalIndexRange> Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
     
     size_t Size() const override {
         return (pages_.size() + 1) * sizeof(Page);

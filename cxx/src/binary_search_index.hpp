@@ -11,7 +11,7 @@
 
 template <size_t D>
 BinarySearchIndex<D>::BinarySearchIndex(size_t dim)
-    : Indexer<D>(dim), column_(dim), ready_(false) {}
+    : PrimaryIndexer<D>(dim), column_(dim), ready_(false) {}
 
 template <size_t D>
 size_t BinarySearchIndex<D>::LocateLeft(Scalar val) const {
@@ -42,12 +42,12 @@ size_t BinarySearchIndex<D>::LocateRight(Scalar val) const {
 }
 
 template <size_t D>
-std::vector<PhysicalIndexRange> BinarySearchIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet BinarySearchIndex<D>::Ranges(const Query<D>& q) const {
     auto accessed = q.filters[column_];
     if (!accessed.present) {
-        return {{0, sorted_data_.size()}};
+        return {.ranges = {{0, sorted_data_.size()}}, .list = IndexList()};
     }
-    std::vector<PhysicalIndexRange> ranges;
+    IndexRangeList ranges;
     if (accessed.is_range) {
         ranges.reserve(accessed.ranges.size());
         size_t added = 0;
@@ -75,7 +75,7 @@ std::vector<PhysicalIndexRange> BinarySearchIndex<D>::Ranges(const Query<D>& q) 
             }
         }
     }
-    return ranges;
+    return PhysicalIndexSet(ranges, IndexList());
 }
 
 template <size_t D>
@@ -89,10 +89,17 @@ void BinarySearchIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
     }
 
     // Sort by this array instead.
-    std::sort(indices.begin(), indices.end(),
+    std::stable_sort(indices.begin(), indices.end(),
         [](const std::pair<Scalar, size_t>& a, const std::pair<Scalar, size_t>& b) -> bool {
             return a.first < b.first;
         });
+    bool data_modified = false;
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (i != indices[i].second) {
+            std::cout << "Index " << indices[i].second << " sorted into position " << i << std::endl;
+            data_modified = true;
+        }
+    }
 
     sorted_data_ = std::vector<Scalar>(s);
     std::vector<Point<D>> data_cpy(s);
@@ -108,6 +115,9 @@ void BinarySearchIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
                 return pt[col];
                 });
     std::copy(data_cpy.cbegin(), data_cpy.cend(), start);
+    if (data_modified) {
+        std::cout << "BinarySearchIndex modified data" << std::endl;
+    }
     ready_ = true;
 }
 

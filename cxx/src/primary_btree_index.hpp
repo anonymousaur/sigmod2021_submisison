@@ -12,7 +12,7 @@
 
 template <size_t D>
 PrimaryBTreeIndex<D>::PrimaryBTreeIndex(size_t dim, size_t ps)
-    : Indexer<D>(dim), column_(dim), page_size_(ps), pages_() { assert(ps > 0); }
+    : PrimaryIndexer<D>(dim), column_(dim), page_size_(ps), pages_() { assert(ps > 0); }
 
 template <size_t D>
 PhysicalIndexRange PrimaryBTreeIndex<D>::PageRangeFor(Scalar start, Scalar end) const {
@@ -35,13 +35,13 @@ PhysicalIndexRange PrimaryBTreeIndex<D>::PageRangeFor(Scalar start, Scalar end) 
 }
 
 template <size_t D>
-std::vector<PhysicalIndexRange> PrimaryBTreeIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet PrimaryBTreeIndex<D>::Ranges(const Query<D>& q) const {
     auto accessed = q.filters[column_];
     if (!accessed.present || pages_.empty()) {
         // No actionable filter on the data, so scan everything.
-        return {{0, data_size_}};
+        return {.ranges = {{0, data_size_}}, .list = IndexList()};
     }
-    std::vector<PhysicalIndexRange> ranges;
+    IndexRangeList ranges;
     if (accessed.is_range) {
         ranges.reserve(accessed.ranges.size());
         size_t added = 0;
@@ -67,7 +67,7 @@ std::vector<PhysicalIndexRange> PrimaryBTreeIndex<D>::Ranges(const Query<D>& q) 
             }
         }
     }
-    return ranges;
+    return PhysicalIndexSet(ranges, IndexList());
 }
 
 template <size_t D>
@@ -99,7 +99,7 @@ void PrimaryBTreeIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
     }
 
     // Sort by this array instead.
-    std::sort(indices.begin(), indices.end(),
+    std::stable_sort(indices.begin(), indices.end(),
         [](const std::pair<Scalar, size_t>& a, const std::pair<Scalar, size_t>& b) -> bool {
             return a.first < b.first;
         });

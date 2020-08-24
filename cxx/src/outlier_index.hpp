@@ -11,22 +11,22 @@
 
 template <size_t D>
 OutlierIndex<D>::OutlierIndex(const std::vector<size_t>& outlier_list)
-    : Indexer<D>(0), main_indexer_(), outlier_indexer_(), outlier_list_(outlier_list) {}
+    : PrimaryIndexer<D>(0), main_indexer_(), outlier_indexer_(), outlier_list_(outlier_list) {}
 
 template <size_t D>
-void OutlierIndex<D>::SetIndexer(std::unique_ptr<Indexer<D>> indexer) {
+void OutlierIndex<D>::SetIndexer(std::unique_ptr<PrimaryIndexer<D>> indexer) {
     assert (indexer);
     main_indexer_ = std::move(indexer);
 }
 
 template <size_t D>
-void OutlierIndex<D>::SetOutlierIndexer(std::unique_ptr<Indexer<D>> indexer) {
+void OutlierIndex<D>::SetOutlierIndexer(std::unique_ptr<PrimaryIndexer<D>> indexer) {
     assert (indexer);
     outlier_indexer_ = std::move(indexer);
 }
 
 template <size_t D>
-std::vector<PhysicalIndexRange> OutlierIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet OutlierIndex<D>::Ranges(const Query<D>& q) const {
     bool relevant = false;
     for (size_t col : this->columns_) {
         relevant |= q.filters[col].present;
@@ -35,21 +35,25 @@ std::vector<PhysicalIndexRange> OutlierIndex<D>::Ranges(const Query<D>& q) const
     // there's not much the outlier index will be able to do.
     if (!relevant) {
         std::cout << "Outlier index not relevant" << std::endl;
-        return {{0, data_size_}};
+        return {.ranges = {{0, data_size_}}, .list = IndexList()};
     }
-    auto ranges = main_indexer_->Ranges(q);
+    auto ix_set = main_indexer_->Ranges(q);
     if (outlier_indexer_) {
         // Add the outlier ranges, but since they are relative to the outlier start index (i.e.,
         // they aren't aware that outliers are shifted), they have to be shifted manually.
-        auto outlier_ranges = outlier_indexer_->Ranges(q);
-        ranges.reserve(ranges.size() + outlier_ranges.size());
-        for (PhysicalIndexRange r : outlier_ranges) {
-            ranges.emplace_back(r.start + outlier_start_ix_, r.end + outlier_start_ix_);
+        auto outlier_ix_set = outlier_indexer_->Ranges(q);
+        ix_set.ranges.reserve(ix_set.ranges.size() + outlier_ix_set.ranges.size());
+        for (PhysicalIndexRange r : outlier_ix_set.ranges) {
+            ix_set.ranges.emplace_back(r.start + outlier_start_ix_, r.end + outlier_start_ix_);
+        }
+        ix_set.list.reserve(ix_set.list.size() + outlier_ix_set.list.size());
+        for (PhysicalIndex p : outlier_ix_set.list) {
+            ix_set.list.push_back(p + outlier_start_ix_);
         }
     } else if (outlier_start_ix_ < data_size_) {
-        ranges.emplace_back(outlier_start_ix_, data_size_);
+        ix_set.ranges.emplace_back(outlier_start_ix_, data_size_);
     }
-    return ranges;
+    return ix_set;
 }
 
 template <size_t D>

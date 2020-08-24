@@ -19,16 +19,11 @@ template <size_t D>
 class InMemoryColumnOrderDataset : public Dataset<D> {
   
   public:
-    explicit InMemoryColumnOrderDataset(const std::vector<Point<D>>& data, const std::vector<Datacube<D>>& cubes={}) {
+    explicit InMemoryColumnOrderDataset(std::vector<Point<D>> data) {
         // Index the datacubes by the columns they will appear in.
-        columns_.resize(D + cubes.size()); 
         for (const Point<D> &p : data) {
             for (size_t d = 0; d < D; d++) {
                 columns_[d].push_back(p[d]);
-            }
-            for (size_t i = 0; i < cubes.size(); i++) {
-                Datacube<D> dc = cubes[i];
-                columns_[dc.index].push_back(dc.agg->operator()(p));
             }
         }
     }
@@ -61,6 +56,6 @@ class InMemoryColumnOrderDataset : public Dataset<D> {
     }
 
 private:
-    std::vector<std::vector<Scalar>> columns_;
+    std::array<std::vector<Scalar>, D> columns_;
 };
 

@@ -17,26 +17,33 @@ template <size_t D>
 class QueryEngine {
   public:
     QueryEngine(std::unique_ptr<Dataset<D>> dataset,
-            std::unique_ptr<Indexer<D>> indexer);
+            std::unique_ptr<PrimaryIndexer<D>> indexer);
     
     QueryEngine(std::unique_ptr<Dataset<D>> dataset,
-            std::unique_ptr<Indexer<D>> indexer,
+            std::unique_ptr<PrimaryIndexer<D>> indexer,
             std::unique_ptr<Rewriter<D>> rewriter);
 
     void Execute(const Query<D>& q, Visitor<D>& visitor);
 
-    long long ScannedPoints() const {
-        return scanned_points_;
+    long ScannedPoints() const {
+        return scanned_range_points_ + scanned_list_points_;
+    }
+    long ScannedRangePoints() const {
+        return scanned_range_points_;
+    }
+    long ScannedListPoints() const {
+        return scanned_list_points_;
     }
 
   private:
     std::unique_ptr<Dataset<D>> dataset_;
-    std::unique_ptr<Indexer<D>> indexer_;
+    std::unique_ptr<PrimaryIndexer<D>> indexer_;
     std::unique_ptr<Rewriter<D>> rewriter_;
     // The columns that are indexed by this indexer, saved for faster access.
     std::unordered_set<size_t> columns_;
 
-    long long scanned_points_;
+    long scanned_range_points_;
+    long scanned_list_points_; 
 };
 
 #include "../src/query_engine.hpp"

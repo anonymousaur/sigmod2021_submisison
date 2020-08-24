@@ -78,7 +78,7 @@ void MappedCorrelationIndex<D>::Load(const std::string& mapping_filename,
         }
         std::vector<size_t> tbs = loc->second;
         
-        IndexRange tixs;
+        IndexRangeList tixs;
         for (size_t j = 0; j < tbs.size(); j++) {
             auto it = targets.find(tbs[j]);
             // If the key isn't found, there's an inconsistency: it corresponds to an inlier bucket
@@ -103,10 +103,10 @@ void MappedCorrelationIndex<D>::Load(const std::string& mapping_filename,
 };
 
 template <size_t D>
-IndexRange MappedCorrelationIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet MappedCorrelationIndex<D>::Ranges(const Query<D>& q) const {
     size_t col = this->column_;
     if (!q.filters[col].present) {
-        return {{0, data_size_}};
+        return {{{0, data_size_}}, {}};
     }
     assert (q.filters[col].is_range);
     assert (q.filters[col].ranges.size() == 1);
@@ -126,7 +126,7 @@ IndexRange MappedCorrelationIndex<D>::Ranges(const Query<D>& q) const {
     if (startit->first.second < sr.first) {
         startit++;
     }
-    IndexRange ranges;
+    IndexRangeList ranges;
     for (auto it = startit; it != endit; it++) {
         //std::cout << "Matched map bucket " << it->first << " with "
         //    << it->second.size() << " ranges:" << std::endl;
@@ -139,7 +139,7 @@ IndexRange MappedCorrelationIndex<D>::Ranges(const Query<D>& q) const {
     //for (auto r : ranges) {
     //    std::cout << "\t" << r.start << " - " << r.end << std::endl;
     //}
-    return ranges;
+    return PhysicalIndexSet(ranges, {});
 }
 
 

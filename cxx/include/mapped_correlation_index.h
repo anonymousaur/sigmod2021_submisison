@@ -3,8 +3,9 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <unordered_map>
 
-#include "indexer.h"
+#include "correlation_indexer.h"
 #include "types.h"
 
 template <size_t D>
@@ -17,7 +18,7 @@ class MappedCorrelationIndex : public CorrelationIndexer<D> {
         ready_ = true;
     }
 
-    std::vector<PhysicalIndexRange> Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
     
     size_t Size() const override {
         size_t s = 0;
@@ -37,15 +38,13 @@ class MappedCorrelationIndex : public CorrelationIndexer<D> {
     // Number of data points
     size_t data_size_;
     
-    // Used for internal purposes only.
-    size_t column_;    
     // True when the index has been initialized.
     bool ready_;
     
     // Mapping from mapped dimension bucket value (left bound) to range of indices it corresponds to.
     // TODO: use a CPP B-Tree here (https://code.google.com/archive/p/cpp-btree/) for
     // memory-efficient and fast accesses.
-    std::map<ScalarRange, IndexRange, ScalarRangeComp> mapping_; 
+    std::map<ScalarRange, IndexRangeList, ScalarRangeComp> mapping_; 
 
 };
 

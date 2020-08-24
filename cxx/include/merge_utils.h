@@ -11,13 +11,17 @@ class MergeUtils {
     MergeUtils() {}
 
   public:
-    static IndexRange Intersect(const IndexRange&, const IndexRange&);
+    static IndexRangeList Intersect(const IndexRangeList&, const IndexRangeList&);
 
     static IndexList Intersect(const IndexList&, const IndexList&);
 
-    static IndexRange Union(const IndexRange&, const IndexRange&);
+    static PhysicalIndexSet Intersect(const PhysicalIndexSet&, const PhysicalIndexSet&);
 
-    static IndexRange Merge(const IndexRange&, const IndexList&, size_t gap_threshold);
+    static IndexRangeList Union(const IndexRangeList&, const IndexRangeList&);
+
+    static PhysicalIndexSet Union(const IndexRangeList&, const IndexList&);
+
+    static IndexList Merge(const IndexRangeList&, const IndexList&);
 
 };
 

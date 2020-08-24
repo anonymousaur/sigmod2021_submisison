@@ -11,12 +11,13 @@
  * queries. Used for the outlier indexer.
  */
 template <size_t D>
-class JustSortIndex : public Indexer<D> {
+class JustSortIndex : public PrimaryIndexer<D> {
   public:
-    JustSortIndex(size_t dim) : Indexer<D>(dim), column_(dim) {}
+    JustSortIndex(size_t dim) : PrimaryIndexer<D>(dim), column_(dim) {}
 
-    std::vector<PhysicalIndexRange> Ranges(const Query<D>& q) const override {
-       return {{0, data_size_}};
+    PhysicalIndexSet Ranges(const Query<D>& q) const override {
+        IndexList lst;
+        return PhysicalIndexSet({{0, data_size_}}, lst);
     }
 
     void Init(PointIterator<D> start, PointIterator<D> end) override;

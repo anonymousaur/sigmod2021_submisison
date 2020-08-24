@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "indexer.h"
+#include "primary_indexer.h"
 #include "dataset.h"
 #include "types.h"
 
@@ -11,13 +11,13 @@
  * the desired range is found using binary search on the endpoints.
  */
 template <size_t D>
-class BinarySearchIndex : public Indexer<D> {
+class BinarySearchIndex : public PrimaryIndexer<D> {
   public:
     BinarySearchIndex(size_t dim);
 
     void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    std::vector<PhysicalIndexRange> Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
 
     void SetData(Dataset<D>* dataset_);
 

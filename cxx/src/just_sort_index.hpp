@@ -21,7 +21,7 @@ void JustSortIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
     }
 
     // Sort by this array instead.
-    std::sort(indices.begin(), indices.end(),
+    std::stable_sort(indices.begin(), indices.end(),
         [](const std::pair<Scalar, size_t>& a, const std::pair<Scalar, size_t>& b) -> bool {
             return a.first < b.first;
         });

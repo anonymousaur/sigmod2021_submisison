@@ -10,6 +10,8 @@ template <size_t D>
 class SecondaryBTreeIndex : public SecondaryIndexer<D> {
   public:
     SecondaryBTreeIndex(size_t dim);
+    // Only index the indices specified by 'subset'
+    SecondaryBTreeIndex(size_t dim, IndexList subset);
 
     void Init(ConstPointIterator<D> start, ConstPointIterator<D> end) override;
 
@@ -35,6 +37,7 @@ class SecondaryBTreeIndex : public SecondaryIndexer<D> {
     size_t data_size_;
     // True when the index has been initialized.
     bool ready_;
+    IndexList index_subset_;
     // A map from dimension value to index range where points with that dimension value that are NOT
     // outliers can be found.
     std::multimap<Scalar, size_t> btree_;

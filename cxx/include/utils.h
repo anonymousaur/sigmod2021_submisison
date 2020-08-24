@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cassert>
 
 template <typename K>
 std::vector<K> load_binary_file(const std::string &filename) {
@@ -74,6 +75,13 @@ std::vector<Query<D>> load_query_file(const std::string& filename) {
     }
     file.close();
     return q_list;
+}
+
+void AssertWithMessage(bool check, std::string msg) {
+    if (!check) {
+        std::cerr << "Assertion Error: " << msg << std::endl;
+    }
+    assert (check);
 }
 
 std::string ArrayToString(const std::vector<Scalar>& vals) {

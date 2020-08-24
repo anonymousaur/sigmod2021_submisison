@@ -42,7 +42,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[0] = {.present = false};
         q.filters[1] = {.present = true, .is_range = false, .ranges = {}, .values = {1}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{0, 12}};
         EXPECT_EQ(ranges.size(), want.size());
         for (size_t i = 0; i < want.size(); i++) {
@@ -61,7 +61,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {2,4}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{1, 2}, {7, 12}};
         EXPECT_EQ(ranges.size(), want.size());
         for (size_t i = 0; i < want.size(); i++) {
@@ -80,7 +80,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {2,3}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{7, 12}};
         EXPECT_EQ(ranges.size(), want.size());
         for (size_t i = 0; i < want.size(); i++) {
@@ -114,7 +114,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {2,4}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{1, 2}, {7, 9}};
         EXPECT_EQ(ranges.size(), want.size()) << "Got " << RangesToString(ranges)
             << " but want " << RangesToString(want);
@@ -135,7 +135,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {3}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         std::vector<PhysicalIndexRange> want = {{9, 10}};
         EXPECT_EQ(ranges.size(), want.size());
         for (size_t i = 0; i < want.size(); i++) {
@@ -155,7 +155,7 @@ namespace test {
         Query<TESTD> q;
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {4}};
-        std::vector<PhysicalIndexRange> ranges = index.Ranges(q);
+        std::vector<PhysicalIndexRange> ranges = index.Ranges(q).ranges;
         EXPECT_EQ(ranges.size(), 0);
     }
 }

@@ -4,7 +4,11 @@
 
 template <size_t D>
 SecondaryBTreeIndex<D>::SecondaryBTreeIndex(size_t dim)
-    : SecondaryIndexer<D>(dim), btree_() {}
+    : SecondaryBTreeIndex<D>(dim, {}) {}
+
+template <size_t D>
+SecondaryBTreeIndex<D>::SecondaryBTreeIndex(size_t dim, IndexList subset)
+    : SecondaryIndexer<D>(dim), btree_(), index_subset_(subset) {}
 
 template <size_t D>
 std::vector<size_t> SecondaryBTreeIndex<D>::Matches(const Query<D>& q) const {
@@ -39,10 +43,17 @@ std::vector<size_t> SecondaryBTreeIndex<D>::Matches(const Query<D>& q) const {
 
 template <size_t D>
 void SecondaryBTreeIndex<D>::Init(ConstPointIterator<D> start, ConstPointIterator<D> end) {
-    size_t i = 0;
-    for (auto it = start; it != end; it++, i++) {
-        btree_.emplace((*it)[this->column_], i);
+    data_size_ = std::distance(start, end);
+    if (index_subset_.empty()) {
+        size_t i = 0;
+        for (auto it = start; it != end; it++, i++) {
+            btree_.emplace((*it)[this->column_], i);
+        }
+    } else {
+        for (size_t ix : index_subset_) {
+            btree_.emplace((*(start+ix))[this->column_], ix);
+        }
+        index_subset_.clear();
     }
-    data_size_ = i;
 }
 

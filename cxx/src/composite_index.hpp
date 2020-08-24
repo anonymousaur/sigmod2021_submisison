@@ -3,16 +3,17 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <chrono>
 
 #include "merge_utils.h"
 
 template <size_t D>
 CompositeIndex<D>::CompositeIndex(size_t gap)
-    : Indexer<D>(), gap_threshold_(gap), secondary_indexes_() {}
+    : PrimaryIndexer<D>(), gap_threshold_(gap), secondary_indexes_() {}
 
 
 template <size_t D>
-bool CompositeIndex<D>::SetPrimaryIndex(std::unique_ptr<Indexer<D>> index) {
+bool CompositeIndex<D>::SetPrimaryIndex(std::unique_ptr<PrimaryIndexer<D>> index) {
     assert (index != NULL);
     primary_index_ = std::move(index);
     return true;
@@ -39,109 +40,79 @@ void CompositeIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
         auto cols = primary_index_->GetColumns();
         this->columns_.insert(cols.begin(), cols.end());
     }
+    for (auto& ci : correlation_indexes_) {
+        ci->Init(start, end);
+        this->columns_.insert(ci->GetMappedColumn());
+    }
     for (auto& si : secondary_indexes_) {
         si->Init(start, end);
         this->columns_.insert(si->GetColumn());
     }
     data_size_ = std::distance(start, end);
-    assert (gap_threshold_ > 0);
 }
 
 template <size_t D>
-std::vector<PhysicalIndexRange> CompositeIndex<D>::Merge(const std::vector<PhysicalIndexRange>& ranges,
-        const std::vector<size_t>& idxs) const {
-    std::vector<PhysicalIndexRange> output;
-    if (ranges.empty() || idxs.empty()) {
-        return output;
-    }
-    size_t cur_range_ix = 0;
-    PhysicalIndexRange running = {0, 0};
-    for (size_t ix : idxs) {
-       while (ix >= ranges[cur_range_ix].end) {
-           cur_range_ix++;
-       }
-       if (cur_range_ix > ranges.size()) {
-           break;
-       }
-       if (ix < ranges[cur_range_ix].start) {
-           continue;
-       }
-       if (running.start >= running.end) {
-           running.start = ix;
-           running.end = ix+1;
-       } else {
-           if (running.end + gap_threshold_ > ix) {
-               running.end = ix+1;
-           } else {
-               output.push_back(running);
-               running = {ix, ix+1};
-           }
-       }
-    }
-    output.push_back(running);
-    return output;
-}
-
-template <size_t D>
-std::vector<size_t> CompositeIndex<D>::Intersect(const std::vector<size_t>& list1, const std::vector<size_t>& list2) const {
-    std::vector<size_t> output;
-    size_t i = 0, j = 0;
-    while (i < list1.size() && j < list2.size()) {
-        if (list1[i] < list2[j]) {
-            i++;
-        } else if (list1[i] > list2[j]) {
-            j++;
-        } else {
-            output.push_back(list1[i]);
-            i++;
-            j++;
-        }
-    }
-    return output;
-}
-
-template <size_t D>
-std::vector<PhysicalIndexRange> CompositeIndex<D>::Ranges(const Query<D>& q) const {
-    std::vector<PhysicalIndexRange> ranges = {{0, data_size_}};
+PhysicalIndexSet CompositeIndex<D>::Ranges(const Query<D>& q) const {
+    PhysicalIndexSet to_scan;
     if (primary_index_ != NULL) {
-        ranges = primary_index_->Ranges(q);
+        to_scan = primary_index_->Ranges(q);
+    } else {
+        to_scan = PhysicalIndexSet({{0, data_size_}}, {}); 
     }
-    /*
-     * // Even though the query values may be sorted, the ranges we get might not be.
-    std::sort(ranges.begin(), ranges.end(),
-        [](const PhysicalIndexRange& a, const PhysicalIndexRange& b) {
-            return a.start < b.start;
-        });*/
+    bool full_scan = to_scan.ranges.size() == 1 &&
+        to_scan.ranges[0].end - to_scan.ranges[0].start == data_size_;
    
     for (auto& ci : correlation_indexes_) {
         if (!q.filters[ci->GetMappedColumn()].present) {
             continue;
         }
-        IndexRange r = ci->Ranges(q);
-        ranges = MergeUtils::Intersect(ranges, r);
+        PhysicalIndexSet ixs = ci->Ranges(q);
+        to_scan = full_scan ? std::move(ixs) : MergeUtils::Intersect(to_scan, ixs);
+        full_scan = false;
     }
 
     // For each secondary index, merge the secondary index matches into it.
     std::vector<size_t> matches;
-    size_t num_secondary_matches = 0;
+    // This is to make sure we sort the secondary index result only when we absolutely have to.
+    bool needs_sort = true;
     for (auto& si : secondary_indexes_) {
         if (!q.filters[si->GetColumn()].present) {
             continue;
         }
         std::vector<size_t> next_matches = si->Matches(q);
-        std::sort(matches.begin(), matches.end());
-        if (num_secondary_matches == 0) {
-            matches = next_matches;
+        if (matches.empty()) {
+            // Don't sort yet - wait until there other other matches or ranges that need
+            // intersecting.
+            matches = std::move(next_matches);
         } else {
+            auto start = std::chrono::high_resolution_clock::now();
+            if (needs_sort) {
+                std::sort(matches.begin(), matches.end());
+                needs_sort = false;
+            }
+            auto mid = std::chrono::high_resolution_clock::now();
+            std::sort(next_matches.begin(), next_matches.end());
             // Only sort if we absolutely have to
             matches = MergeUtils::Intersect(matches, next_matches);
+            auto end = std::chrono::high_resolution_clock::now();
+            auto tt1 = std::chrono::duration_cast<std::chrono::nanoseconds>(mid - start).count();
+            auto tt2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end - mid).count();
+            std::cout << "Sort time: " << tt1 << "ns, "
+                << "Intersect time: " << tt2 << "ns" << std::endl;
         }
-        num_secondary_matches += 1;
+    }
+    // This makes sure we don't sort the secondary index results unless there are non-trivial
+    // primary index results to merge with.
+    if (matches.size() == 0) {
+        return to_scan;
+    }
+    if (full_scan) {
+        return {.ranges = IndexRangeList(), .list = matches};
+    }
+    if (needs_sort) {
+        std::sort(matches.begin(), matches.end());
     }
     // Now merge the combined secondary indexes with the primary index range.
-    if (matches.size() > 0) {
-        ranges = MergeUtils::Merge(ranges, matches, gap_threshold_);
-    }
-    return ranges;
+    return MergeUtils::Intersect(to_scan, {{}, matches});
 }
 

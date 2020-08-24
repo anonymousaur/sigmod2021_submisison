@@ -9,31 +9,30 @@
 #include "indexer.h"
 
 template <size_t D>
-using ConstPointIterator = typename std::vector<Point<D>>::const_iterator;
+using PointIterator = typename std::vector<Point<D>>::iterator;
 
 template <size_t D>
-class CorrelationIndexer : public Indexer<D> {
+class PrimaryIndexer : public Indexer<D> {
     public:
 
-    CorrelationIndexer<D>() : column_() {};    
-    CorrelationIndexer<D>(size_t dim) : column_(dim) {};
+    PrimaryIndexer<D>() : columns_() {};    
+    PrimaryIndexer<D>(size_t dim) : columns_({dim}) {};
         
     // Given a query bounding box, specified by the bottom left point p1 and
     // bottom-right point p2, initialize an iterator, which successively returns
     // ranges of VirtualIndices to check.
     virtual PhysicalIndexSet Ranges(const Query<D>& query) const = 0;
 
-    virtual void Init(ConstPointIterator<D> start, ConstPointIterator<D> end) = 0;
+    virtual void Init(PointIterator<D> start, PointIterator<D> end) = 0;
 
     // Size of the indexer in bytes
     virtual size_t Size() const override = 0;
+    
+    virtual std::unordered_set<size_t> GetColumns() const { return columns_; }
 
-    virtual size_t GetMappedColumn() const { return column_; }    
-
-    IndexerType Type() const override { return IndexerType::Correlation; }
+    IndexerType Type() const override { return IndexerType::Primary; }
 
     protected:
     // This may not be set on construction, but must be set after Init returns. 
-    size_t column_;    
+    std::unordered_set<size_t> columns_;    
 };
-

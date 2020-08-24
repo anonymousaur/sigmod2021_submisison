@@ -124,15 +124,17 @@ struct ScalarRangeComp {
     } 
 };
 
-typedef std::vector<PhysicalIndexRange> IndexRange;
+typedef std::vector<PhysicalIndexRange> IndexRangeList;
 typedef std::vector<PhysicalIndex> IndexList;
 
 // The output of indexes - secondary indexes usually report lists, while clustered indexes report
 // ranges. The true physical index set is a union of teh ranges and the lists.
 struct PhysicalIndexSet {
-    IndexRange ranges;
+    IndexRangeList ranges;
     IndexList list;
+    PhysicalIndexSet(IndexRangeList rgs, IndexList lst) : ranges(rgs), list(lst) {}
+    PhysicalIndexSet() : ranges(), list() {}
 };
 
-
+enum IndexerType { Primary, Secondary, Correlation};
 
