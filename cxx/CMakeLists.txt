@@ -16,8 +16,10 @@ set(CMAKE_PARK_FLAGS "-march=x86-64")
 option(NDEBUG "Turn off logging" OFF)
 set (TESTDIR "tests")
 
-if (NOT DIM)
-    add_definitions(-DDIM=2)
+if (DIM)
+    add_definitions(-D DIM=${DIM})
+else()
+    add_definitions(-D DIM=2)
 endif()
 
 if (NDEBUG)
@@ -76,4 +78,6 @@ add_executable(test_composite_index ${TESTDIR}/test_composite_index.cpp ${SOURCE
 target_link_libraries(test_composite_index gtest_main)
 add_executable(test_single_column_rewriter ${TESTDIR}/test_single_column_rewriter.cpp ${SOURCES})
 target_link_libraries(test_single_column_rewriter gtest_main)
+add_executable(test_merge_utils ${TESTDIR}/test_merge_utils.cpp ${SOURCES})
+target_link_libraries(test_merge_utils gtest_main)
 
