@@ -21,6 +21,9 @@ class MergeUtils {
 
     static PhysicalIndexSet Union(const IndexRangeList&, const IndexList&);
 
+    // Note: this does NOT deduplicate.
+    static IndexList Union(const std::vector<const IndexList *> ix_lists);
+
     static IndexList Merge(const IndexRangeList&, const IndexList&);
 
 };

@@ -1,6 +1,8 @@
 #include "gtest/gtest.h"
 #include "merge_utils.h"
 
+#include <random>
+#include <chrono>
 #include <vector>
 #include "utils.h"
 
@@ -72,6 +74,67 @@ namespace test {
         auto got_set = MergeUtils::Intersect({r1, l1}, {r2, l2});
         EXPECT_TRUE(ArrayEqual(got_set.ranges, want_range));
         EXPECT_TRUE(ArrayEqual(got_set.list, want_list));
+    }
+
+    TEST_F(MergeUtilsTest, TestUnionHeap) {
+        IndexList l1 = {1, 3, 5, 7};
+        IndexList l2 = {4, 6, 9, 19, 20};
+        IndexList l3 = {8, 12, 15, 16};
+        
+        IndexList want = {1, 3, 4, 5, 6, 7, 8, 9, 12, 15, 16, 19, 20};
+        IndexList got = MergeUtils::Union({&l1, &l2, &l3});
+        EXPECT_TRUE(ArrayEqual(got, want));
+    }
+
+    TEST_F(MergeUtilsTest, TimedTest) {
+        std::default_random_engine gen;
+        std::uniform_int_distribution<int> dist(1,1<<30);
+        std::vector<const IndexList *> ix_lsts;
+        std::vector<size_t> for_sorting;
+        for (size_t i = 0; i < 10; i++) {
+            size_t n = 1000000;
+            auto v = new std::vector<size_t>();
+            v->reserve(n);
+            for (size_t j = 0; j < n; j++) {
+                v->push_back(dist(gen));
+                for_sorting.push_back(dist(gen));
+            }
+            std::sort(v->begin(), v->end());
+            ix_lsts.push_back(v);
+        }
+                
+        auto start = std::chrono::high_resolution_clock::now();
+        IndexList got = MergeUtils::Union(ix_lsts);
+        auto finish = std::chrono::high_resolution_clock::now();
+        auto tt = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
+        std::cout << "Result size " << got.size() << ", time = " << tt / 1e3 << "us" << std::endl;
+        
+        start = std::chrono::high_resolution_clock::now();
+        std::sort(for_sorting.begin(), for_sorting.end());
+        finish = std::chrono::high_resolution_clock::now();
+        tt = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
+        std::cout << "Result size " << for_sorting.size() << ", time = " << tt / 1e3 << "us" << std::endl;
+        
+        
+        for (auto v : ix_lsts) {
+            delete v;
+        }
+        ix_lsts.clear();
+        for (size_t i = 0; i < 100; i++) {
+            size_t n = 100000;
+            auto v = new std::vector<size_t>();
+            v->reserve(n);
+            for (size_t j = 0; j < n; j++) {
+                v->push_back(dist(gen));
+            }
+            std::sort(v->begin(), v->end());
+            ix_lsts.push_back(v);
+        }
+        start = std::chrono::high_resolution_clock::now();
+        got = MergeUtils::Union(ix_lsts);
+        finish = std::chrono::high_resolution_clock::now();
+        tt = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
+        std::cout << "Result size " << got.size() << ", time = " << tt / 1e3 << "us" << std::endl;
     }
 } // namespace test
 

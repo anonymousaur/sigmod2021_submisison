@@ -35,6 +35,8 @@ std::unique_ptr<Indexer<D>> IndexBuilder<D>::Dispatch(std::ifstream& spec, bool 
         return BuildPrimaryBTreeIndex(spec);
     } else if (next_index == "OctreeIndex") {
         return BuildOctreeIndex(spec);
+    } else if (next_index == "BucketedSecondaryIndex") {
+        return BuildBucketedSecondaryIndex(spec);
     } else if (next_index == "}") {
         // Case to deal with variable length indexes
         return nullptr;
@@ -181,4 +183,26 @@ std::unique_ptr<OctreeIndex<D>> IndexBuilder<D>::BuildOctreeIndex(std::ifstream&
     }
     return std::make_unique<OctreeIndex<D>>(indexed_dims, page_size);
 }
-        
+       
+template <size_t D>
+std::unique_ptr<BucketedSecondaryIndex<D>> IndexBuilder<D>::BuildBucketedSecondaryIndex(std::ifstream& spec) {
+    std::string paren, mapfile, optional_list, paren2;
+    size_t dim;
+    spec >> paren >> dim >> mapfile >> optional_list;
+    if (optional_list == "}") {
+        AssertWithMessage(paren == "{", "Incorrect spec for BucketedSecondaryIndex");
+        auto idx = std::make_unique<BucketedSecondaryIndex<D>>(dim);
+        idx->SetBucketFile(mapfile);
+        return idx;
+        std::cout << "Building BucketedSecondaryIndex with dim " << dim << " and mapfile" << std::endl;
+    }
+    spec >> paren2;
+    AssertWithMessage(paren == "{" && paren2 == "}", "Incorrect spec for BucketedSecondaryIndex");
+    IndexList outlier_list = load_binary_file<size_t>(optional_list);
+    std::cout << "Building BucketedSecondaryIndex with dim " << dim << ", mapfile"
+        << ", and outlier list of size " << outlier_list.size() << std::endl;
+    auto idx = std::make_unique<BucketedSecondaryIndex<D>>(dim, outlier_list);
+    idx->SetBucketFile(mapfile);
+    return idx;
+}
+

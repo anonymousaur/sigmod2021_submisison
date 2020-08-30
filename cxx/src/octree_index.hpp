@@ -179,6 +179,12 @@ void OctreeIndex<D>::Init(PointIterator<D> data_start, PointIterator<D> data_end
             maxs_[i] = std::fmax(p[index_dims_[i]], maxs_[i]);
         }
     }
+    std::cout << "Building Octree with page size " << page_size_ 
+        << " on dimensions: ";
+    for (size_t i : index_dims_) {
+        std::cout << i << " ";
+    }
+    std::cout << std::endl;
     data_size_ = std::distance(data_start, data_end);
     root_node = std::unique_ptr<Node>(new Node());
     root_node->mins = mins_;
@@ -219,6 +225,7 @@ PhysicalIndexSet OctreeIndex<D>::Ranges(const Query<D> &query) const {
     }
     std::stack<Node*> node_stack;
     node_stack.push(root_node.get());
+    size_t indexes_scanned = 0;
     while (!node_stack.empty()) {
         Node* cur = node_stack.top();
         node_stack.pop();
@@ -229,6 +236,7 @@ PhysicalIndexSet OctreeIndex<D>::Ranges(const Query<D> &query) const {
             // this node is a leaf
             // TODO: add code here if we're sorting.
             ranges.emplace_back(cur->start_offset, cur->end_offset);
+            indexes_scanned += cur->end_offset - cur->start_offset;
         } else {
             for (auto it = cur->children.rbegin(); it != cur->children.rend(); it++) {
                 if (*it) {

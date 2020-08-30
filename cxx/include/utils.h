@@ -32,6 +32,7 @@ template <size_t D>
 std::vector<Query<D>> load_query_file(const std::string& filename) {
     std::vector<Query<D>> result;
     std::ifstream file(filename);
+    assert (file.is_open());
 
     std::string sep;
     std::string line;

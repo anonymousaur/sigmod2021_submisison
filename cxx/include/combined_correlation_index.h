@@ -35,10 +35,18 @@ class CombinedCorrelationIndex : public CorrelationIndexer<D> {
     }
 
     PhysicalIndexSet Ranges(const Query<D>& q) const override {
+        // TODO(vikram): since we're using bucketedSecondaryIndexer, this is already sorted.
+        auto start = std::chrono::high_resolution_clock::now();
         IndexList lst = outlier_index_->Matches(q);
-        std::sort(lst.begin(), lst.end());
+        auto mid = std::chrono::high_resolution_clock::now();
         PhysicalIndexSet mapped_ranges = mapped_index_->Ranges(q);
-        return MergeUtils::Union(mapped_ranges.ranges, lst);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto match_t = std::chrono::duration_cast<std::chrono::nanoseconds>(mid-start).count();
+        auto range_t = std::chrono::duration_cast<std::chrono::nanoseconds>(end-mid).count();
+        std::cout << "Range time (us): " << range_t / 1e3 << std::endl;
+        std::cout << "Match time (us): " << match_t / 1e3 << std::endl;
+        PhysicalIndexSet ret = MergeUtils::Union(mapped_ranges.ranges, lst);
+        return ret;
     }
     
     size_t Size() const override {

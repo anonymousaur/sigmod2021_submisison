@@ -43,6 +43,7 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
     }
     Query<D> newq = rewriter_ ? rewriter_->Rewrite(q) : q;
     PhysicalIndexSet indexes_to_scan = indexer_->Ranges(newq);
+    auto start = std::chrono::high_resolution_clock::now();
     for (PhysicalIndexRange range : indexes_to_scan.ranges) {
         scanned_range_points_ += range.end - range.start;
         for (PhysicalIndex p = range.start; p < range.end; p += 64UL) {
@@ -61,6 +62,7 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
             visitor.visitRange(dataset_.get(), p, true_end, valids); 
         }
     }
+    auto mid = std::chrono::high_resolution_clock::now();
     scanned_list_points_ += indexes_to_scan.list.size();
     for (PhysicalIndex p : indexes_to_scan.list) {
         // Can't really do a bitmap for this.
@@ -76,6 +78,10 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
         }
         visitor.visitRange(dataset_.get(), p, p+1, valid); 
     }
-
+    auto end = std::chrono::high_resolution_clock::now();
+    auto ranges_t = std::chrono::duration_cast<std::chrono::nanoseconds>(mid-start).count();
+    auto list_t = std::chrono::duration_cast<std::chrono::nanoseconds>(end-mid).count();
+    std::cout << "Scan time (us): ranges = " << ranges_t / 1e3
+        << ", list = " << list_t / 1e3 << ", total = " << (ranges_t + list_t) / 1e3 << std::endl;
 }
 

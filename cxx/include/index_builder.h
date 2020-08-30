@@ -18,7 +18,9 @@
 #include "combined_correlation_index.h"
 #include "mapped_correlation_index.h"
 #include "outlier_index.h"
+#include "bucketed_secondary_index.h"
 #include "octree_index.h"
+
 /*
  * Given a file as an index specification, builds and returns the appropriate index.
  */
@@ -43,6 +45,7 @@ class IndexBuilder {
     std::unique_ptr<BinarySearchIndex<D>> BuildBinarySearchIndex(std::ifstream& spec);
     std::unique_ptr<PrimaryBTreeIndex<D>> BuildPrimaryBTreeIndex(std::ifstream& spec);
     std::unique_ptr<OctreeIndex<D>> BuildOctreeIndex(std::ifstream& spec);
+    std::unique_ptr<BucketedSecondaryIndex<D>> BuildBucketedSecondaryIndex(std::ifstream& spec);
 
 };
 

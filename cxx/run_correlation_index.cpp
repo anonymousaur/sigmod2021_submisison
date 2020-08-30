@@ -136,7 +136,9 @@ int main(int argc, char** argv) {
                 << std::endl;
             prev_r = tot_r_scanned;
             prev_l = tot_l_scanned;
-            query_times.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count());
+            auto query_t = std::chrono::duration_cast<std::chrono::nanoseconds>(query_end-query_start).count();
+            query_times.push_back(query_t);
+            std::cout << "Query time (ms): " << query_t/ 1e6 << std::endl;
         }
     } else if (visitor_type == std::string("dummy")) {
         for (int i = 0; i < num_queries; i++) {
@@ -196,14 +198,14 @@ int main(int argc, char** argv) {
                 << "," << visitor_type
                 << "," << GetWithDefault(flags, "outlier-list", "")
                 << "," << num_outliers
-                << "," << GetWithDefault(flags, "mapping-file", "")
-                << "," << GetWithDefault(flags, "target-bucket-file", "")
+                << "," << GetWithDefault(flags, "indexer-spec", "")
                 << "," << GetWithDefault(flags, "rewriter", "")
                 << "," << indexer_size_bytes
                 << "," << total
                 << "," << aggregate
                 << "," << tt / ((double)num_queries)
-                << "," << engine.ScannedPoints()
+                << "," << engine.ScannedRangePoints()
+                << "," << engine.ScannedListPoints()
             << std::endl; 
         results.close();
     }

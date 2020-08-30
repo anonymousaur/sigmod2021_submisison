@@ -1,4 +1,7 @@
 #include "merge_utils.h"
+#include "utils.h"
+
+#include <algorithm>
 
 
 IndexRangeList MergeUtils::Intersect(const IndexRangeList& first, const IndexRangeList& second) {
@@ -196,18 +199,20 @@ PhysicalIndexSet MergeUtils::Union(const IndexRangeList& ranges, const IndexList
     size_t list_ix = 0;
     IndexList pruned;
     pruned.reserve(list.size());
-    while (list_ix < list.size()) {
+    while (list_ix < list.size() && cur_range_ix < ranges.size()) {
         size_t index = list[list_ix];
         if (index < ranges[cur_range_ix].start) {
             pruned.push_back(index);
             list_ix++;
-        }
-        else if (index > ranges[cur_range_ix].end) {
+        } else if (index >= ranges[cur_range_ix].end) {
             cur_range_ix++;
         } else {
             // The index is in a range.
             list_ix++;
         }
+    }
+    if (list_ix < list.size()) {
+        pruned.insert(pruned.end(), list.begin() + list_ix, list.end());
     }
     pruned.shrink_to_fit();
     return {ranges, pruned};
@@ -237,3 +242,84 @@ IndexList MergeUtils::Merge(const IndexRangeList& ranges, const IndexList& idxs)
     return output;
 }
 
+// Takes a priority queue of pointers to IndexLists sorted by their sizes.
+IndexList MergeUtils::Union(const std::vector<const IndexList *> ix_lists) {
+    size_t max_size = 0;
+    std::vector<size_t> breaks;
+    size_t num_lists = ix_lists.size();
+    breaks.reserve(num_lists+1);
+    breaks.push_back(0);
+    for (auto ixl : ix_lists) {
+        max_size += ixl->size();
+        breaks.push_back(max_size);
+    }
+    IndexList all_ixs;
+    all_ixs.reserve(max_size);
+    for (auto ixl : ix_lists) {
+        all_ixs.insert(all_ixs.end(), ixl->begin(), ixl->end());
+    }
+    std::vector<size_t> next_breaks;
+    next_breaks.reserve(num_lists);
+    // Perform a series of in-place merges until the entire list is sorted.
+    while (breaks.size() > 2) {
+        next_breaks.clear();
+        next_breaks.push_back(0);
+        for (size_t i = 2; i < breaks.size(); i += 2) {
+            std::inplace_merge(all_ixs.begin()+breaks[i-2],
+                               all_ixs.begin()+breaks[i-1],
+                               all_ixs.begin()+breaks[i]);
+            next_breaks.push_back(breaks[i]);
+        }
+        // Even sized breaks means we have an odd number of ranges.
+        if ((breaks.size() & 1) == 0) {
+           next_breaks.push_back(breaks.back()); 
+        }
+        std::swap(breaks, next_breaks);
+    }
+    return all_ixs;
+}
+/**
+ * Old implementation of Union with a heap
+    typedef std::pair<size_t, size_t> ixsrc;
+    struct IndexComp {
+        // Pair of index and list it came from.
+        bool operator() (const ixsrc& lhs, const ixsrc& rhs) const {
+            // Define less in the opposite way, so the max-heap algorithm returns the smallest index
+            // first.
+            return lhs.first > rhs.first;
+        } 
+    } cmp;
+
+    IndexList final_list;
+    std::vector<ixsrc> heap;
+    heap.reserve(ix_lists.size());
+    size_t max_size;
+    std::vector<size_t> cur_ixs(ix_lists.size(), 0);
+    for (size_t i = 0; i < ix_lists.size(); i++) {
+        max_size += ix_lists[i]->size();
+        AssertWithMessage(ix_lists[i]->size() > 0, "Empty list passed to HeapUnion");
+        heap.push_back({ix_lists[i]->operator[](0), i});
+    }
+    final_list.reserve(max_size);
+    std::make_heap(heap.begin(), heap.end(), cmp);
+    size_t prev = 0;
+    while (!heap.empty()) {
+        std::pop_heap(heap.begin(), heap.end(), cmp);
+        ixsrc ix = heap.back();
+        heap.pop_back();
+        // Make sure these indexes are distinct.
+        if (final_list.empty() || prev < ix.first) {
+            final_list.push_back(ix.first);
+            prev = ix.first;
+        }
+        cur_ixs[ix.second]++;
+        if (cur_ixs[ix.second] < ix_lists[ix.second]->size()) {
+            ix.first = ix_lists[ix.second]->operator[](cur_ixs[ix.second]);
+            heap.push_back(ix);
+            std::push_heap(heap.begin(), heap.end(), cmp);
+        }
+    }
+    final_list.shrink_to_fit();
+    return final_list;
+}
+*/

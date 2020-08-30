@@ -1,7 +1,7 @@
 #!/bin/bash
 
 NAME=$1
-ARGPREFIX=$2
+DATASET=$2
 WORKLOAD=$3
 
 if [ -z "$WORKLOAD" ];
@@ -10,12 +10,12 @@ then
     exit 0
 fi
 
-./build2/run_secondary_index \
+./build9/run_secondary_index \
     --name=$NAME \
-    --dataset=$ARGPREFIX.data \
+    --dataset=$DATASET \
     --workload=$WORKLOAD \
     --visitor=sum \
-    --mapped-dim=0 \
-    --target-dim=1 \
+    --mapped-dim=5 \
+    --target-dim=3 \
     --save=results/$NAME.dat
 

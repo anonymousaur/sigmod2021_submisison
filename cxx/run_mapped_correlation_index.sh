@@ -1,22 +1,22 @@
 #!/bin/bash
 
-NAME=$1
-ARGPREFIX=$2
-WORKLOAD=$3
+DIM=$1
+NAME=$2
+DATASET=$3
+WORKLOAD=$4
+SPEC=$5
 
-if [ -z "$WORKLOAD" ];
+if [ -z "$SPEC" ];
 then
-    echo "Requires 3 arguments"
+    echo "Requires 5 arguments"
     exit 0
 fi
 
-./build2/run_mapped_correlation_index \
+./build${DIM}/run_mapped_correlation_index \
     --name=$NAME \
-    --dataset=$ARGPREFIX.data \
+    --dataset=$DATASET \
     --workload=$WORKLOAD \
-    --visitor=sum \
-    --mapping-file=$ARGPREFIX.mapping \
-    --outlier-list=$ARGPREFIX.outliers \
-    --target-bucket-file=$ARGPREFIX.targets \
+    --visitor=index \
+    --indexer-spec=$SPEC \
     --save=results/$NAME.dat
 

@@ -101,6 +101,13 @@ PhysicalIndexSet CompositeIndex<D>::Ranges(const Query<D>& q) const {
                 << "Intersect time: " << tt2 << "ns" << std::endl;
         }
     }
+    size_t indexes_scanned = matches.size() + to_scan.list.size();
+    for (PhysicalIndexRange p : to_scan.ranges) {
+        indexes_scanned += p.end - p.start;
+    }
+    //if (2*indexes_scanned > data_size_) {
+    //    return {{{0, data_size_}}, {}};
+    //}
     // This makes sure we don't sort the secondary index results unless there are non-trivial
     // primary index results to merge with.
     if (matches.size() == 0) {
