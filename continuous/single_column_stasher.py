@@ -208,7 +208,10 @@ class SingleColumnStasher(object):
             z_rights = np.maximum(z_rights, np.roll(self.zeros_right, -i))
         q_elim = z_rights - z_lefts - self.k
         cumul_cnt = self.counts.sum()
-        factor = self.orig_overhead / self.npoints
+        true_pts = self.npoints
+        factor = (self.orig_overhead + true_pts) / self.npoints 
+        # How much more an outlier adds to performance than a point in a range.
+        outlier_performance_factor = 5
 
         # for each bucket, the minimum number of leftover points that must be unstashed for stashing that
         # bucket to be worth it. If there are more leftover, it's only more of a reason to stash
@@ -227,8 +230,8 @@ class SingleColumnStasher(object):
             marginal_overhead_red = cumul_cnt - stashed - c
             # All the unstashed buckets don't have to count this bucket as extra overhead
             marginal_overhead_red += (len(self.counts) - i - 1)*c
-            # However, the marginal storage factor is positive.
-            marginal_storage_gain = self.alpha*c*factor
+            # However, the marginal storage factor and query time increase is positive.
+            marginal_storage_gain = c * (outlier_performance_factor - 1 + self.alpha*factor)
             if marginal_overhead_red <= marginal_storage_gain:
                 bucket_ixs_stashed = sort_ix[min_bucket:i]
                 break

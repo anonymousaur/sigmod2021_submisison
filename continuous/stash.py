@@ -96,12 +96,14 @@ class Stasher(object):
     # column is the target dimension.
     # k is the average length of the ranges on the mapped dimension.
     # buckets is an integer list of bucket ids for each point (size = (len(pts),))
-    def __init__(self, data, mapped_schema, target_schemas, nproc=1):
+    def __init__(self, data, mapped_schema, target_schemas, nproc=1, compute_overhead=True):
         self.using_display = True
         map_bucketer = Bucketer([mapped_schema], data, sequentialize=True)
         self.mapped_buckets = map_bucketer.get_ids()
+        print("Got all mapped bucket IDs")
         target_bucketer = Bucketer(target_schemas, data)
         self.target_buckets = target_bucketer.get_ids()
+        print("Got all target bucket IDs")
         # Make sure data is already sorted in order of the target bucket value.
         assert np.all(np.diff(self.target_buckets) >= 0)
 
@@ -118,7 +120,8 @@ class Stasher(object):
         print("Done finding bucket IDs")
         
         self.bucket_ranges = self.bucketize()
-        self.original_overhead = self.compute_overhead(nproc=nproc)
+        self.original_overhead = self.compute_overhead(nproc=nproc) if compute_overhead else 1
+        self.bucketmap = defaultdict(list)
         # if True, will show progress bars
 
     def display(self, d):
@@ -138,6 +141,7 @@ class Stasher(object):
         print("# Mapped buckets (dim %d) = %d" % (self.mapped_dim,
             len(np.unique(self.mapped_buckets))))
         print("# Target buckets (dims %s) = %d" % (str(self.target_dims), len(uq)))
+        self.target_bucket_counts = counts
 
         buckets = {}
         prev_end = 0
@@ -215,32 +219,29 @@ class Stasher(object):
         
         cuml_stats["data_size"] = len(self.data)
         cuml_stats["total_cost"] = total_cost
+        cuml_stats["num_outliers"] = len(cuml_outliers)
+        self.outlier_indexes = cuml_outliers
+        # ndices in the original dataset
+        orig_outlier_list = self.sort_ixs[cuml_outliers]
+        self.bucketmap = bucketmap
+        self.ccm.set_bucket_map(bucketmap)
+        return orig_outlier_list, cuml_stats
+
+    # In the revised model, the host bucket isn't modified 
+    def stash_outliers_fast(self, max_pts_to_stash):
+        cuml_outliers = []
+        cuml_stats = defaultdict(float)
+        
+        print("Total cost:", total_cost)
+        
+        cuml_stats["data_size"] = len(self.data)
+        cuml_stats["total_cost"] = total_cost
+        cuml_stats["num_outliers"] = len(cuml_outliers)
         self.outlier_indexes = cuml_outliers
         # ndices in the original dataset
         orig_outlier_list = self.sort_ixs[cuml_outliers]
         self.ccm.set_bucket_map(bucketmap)
         return orig_outlier_list, cuml_stats
-
-    def stash_all_outliers(self, max_pts_to_stash):
-        stash_size = 0
-        buckets_to_stash = []
-        so = self.cg.scan_overhead()
-        data = [(0, so)]
-        while True:
-            s, b, ixs = self.cg.pop_best()
-            if s is None:
-                break
-            stash_size += s
-            so = self.cg.scan_overhead()
-            data.append((stash_size, so))
-            for i in range(ixs[1], ixs[2]):
-                buckets_to_stash.append(self.buckethash(ixs[0], i))
-            if stash_size > max_pts_to_stash:
-                break
-
-        all_pts_hashes = self.buckethash(self.buckets[:,1], self.buckets[:, 0])
-        outlier_ix_mask = np.isin(all_pts_hashes, buckets_to_stash)
-        return np.where(outlier_ix_mask)[0], data
 
     def compute_overhead(self, nproc=1):
         original_so = 0

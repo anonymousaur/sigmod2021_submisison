@@ -25,13 +25,9 @@ class ContinuousCorrelationMap(object):
     def set_mapped_bucketer(self, mb):
         self.mapped_buckets = mb.get_ranges()[0]
         self.mapped_dim = mb.dims()[0]
-        self.mapped_bucket_ids = mb.get_ids()
 
     def set_target_bucketer(self, tb):
-        self.target_buckets = tb.get_ranges()
         self.target_dims = tb.dims()
-        self.target_bucket_ids = tb.get_ids()
-
 
     # bmap is a dictionary from map buckets to lists of target buckets
     def set_bucket_map(self, bmap):
@@ -45,10 +41,9 @@ class ContinuousCorrelationMap(object):
     def write(self, fobj):
         lr = 0
         fobj.write("continuous-0\n")
-        map_uq = np.unique(self.mapped_bucket_ids)
-        fobj.write("source\t%d\t%d\n" % (self.mapped_dim, len(map_uq)))
-        for mb in map_uq:
-            fobj.write("%d\t%s\t%s\n" % (mb, self.mapped_buckets[mb], self.mapped_buckets[mb+1]))
+        fobj.write("source\t%d\t%d\n" % (self.mapped_dim, len(self.mapped_buckets)))
+        for mb in self.mapped_buckets:
+            fobj.write("%d\t%s\t%s\n" % (mb[0], str(mb[1]), str(mb[2])))
 
         # Mapping from mapped dimension buckets to lists of target dimension buckets
         fobj.write("mapping\t%d\n" % len(self.bucket_map))
@@ -60,6 +55,7 @@ class ContinuousCorrelationMap(object):
             fobj.write("%d\t%s\n" % (k, '\t'.join(v)))
             bar.next()
         bar.finish()
-
-        print("Average # target buckets: %.02f" % (float(lr)/len(self.bucket_map)))
+        
+        if len(self.bucket_map) > 0:
+            print("Average # target buckets: %.02f" % (float(lr)/len(self.bucket_map)))
 

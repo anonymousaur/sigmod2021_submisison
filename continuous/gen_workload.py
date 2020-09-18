@@ -1,7 +1,155 @@
 import numpy as np
 import argparse
+import random
+import sys
+import math
+from bucketer import Schema
 
 # Generates queries whose distribution matches that of the points.
+
+
+class Hist2D(object):
+    # data has 2 dimensions
+    def __init__(self, data):
+        max_buckets = 10000
+        ptls = np.linspace(0, 100, max_buckets+1)
+        bnds0 = np.unique(np.percentile(data[:,0], ptls, interpolation='nearest'))
+        bnds1 = np.unique(np.percentile(data[:,1], ptls, interpolation='nearest'))
+        print("Creating histogram")
+        self.cumul_hist = self.cuml_hist(data, bnds0, bnds1)
+        self.data_size = len(data)
+        print("Done")
+
+    # Returns an histogram where each cell (i,j) contains the number of points in
+    # cells (a,b) such that a <= i and b <= j
+    def cuml_hist(self, data, bnds1, bnds2):
+        hist = np.histogram2d(data[:,0], data[:,1], (bnds1, bnds2))
+        self.points_present = hist[0] > 0
+        self.hist = np.zeros((hist[0].shape[0]+1, hist[0].shape[1]+1))
+        self.hist[1:, 1:] = hist[0]
+        self.x_count = self.hist.sum(axis=1)
+        self.y_count = self.hist.sum(axis=0)
+        self.x_cumul = np.cumsum(self.x_count)
+        self.y_cumul = np.cumsum(self.y_count)
+        self.bounds = (hist[1], hist[2])
+        return np.cumsum(np.cumsum(self.hist, axis=0), axis=1)
+
+    def custom_ptl(self, data, ptls):
+        ddata = np.sort(data)
+        vals = []
+        for p in ptls:
+            ix = int(p * len(data)/100.)
+            if ix >= len(data):
+                vals.append(data[-1]+1)
+                break
+            if len(vals) > 0 and data[ix] <= vals[-1]:
+                continue
+            while ix > 0 and data[ix] == data[ix-1]:
+                ix += 1
+            vals.append(data[ix])
+        return vals
+
+    # Gets all points strictly less than this index
+    def get(self,x, y):
+        return self.cumul_hist[x, y]
+
+    # The arguments are indices to the bounds array
+    def points_within(self, x1, y1, x2, y2):
+        return self.get(x2, y2) + self.get(x1, y1) - self.get(x1, y2) - self.get(x2, y1)
+
+    def get_y_bucket(self, x_start, y_start, x_bucket, direction):
+        xstart_val = self.bounds[0][x_start]
+        ystart_val = self.bounds[1][y_start]
+        xval = self.bounds[0][x_bucket]
+        yval = (xval - xstart_val)* np.tan(direction) + ystart_val 
+        y_bucket = np.searchsorted(self.bounds[1], yval, side="right")
+        return max(y_bucket, y_start+1)
+
+    def random_range_for_sel(self, cum_counts, target, target_high=None):
+        max_ix = np.searchsorted(cum_counts, cum_counts[-1] - target)
+        start = random.randint(0, max_ix)
+        l = start
+        r = len(cum_counts)-1
+        while l < r:
+            mid = int((l+r)/2)
+            pts = cum_counts[mid] - cum_counts[start]
+            if pts < target:
+                l = mid+1
+            elif target_high is None or pts > target_high:
+                r = mid
+            else:
+                return (start, mid)
+        if cum_counts[l] - cum_counts[start] < target:
+            return None
+        return (start, l)
+
+    def try_query_with_target(self, selectivity):
+        single_dim_sel = math.sqrt(selectivity)
+        xsel = random.uniform(selectivity, single_dim_sel)
+        ysel = random.uniform(selectivity, single_dim_sel)
+        x_range = self.random_range_for_sel(self.x_cumul, xsel * self.data_size)
+        if x_range is None:
+            print("Bad x range")
+            return None, None
+        # Sum of values in this x-range, accumulated over each y bucket.
+        y_cum_counts = self.cumul_hist[x_range[1]] - self.cumul_hist[x_range[0]]
+        target_pts = selectivity * self.data_size
+        # Find the y range that gets us the required number of points.
+        y_range = self.random_range_for_sel(y_cum_counts, 0.5*target_pts,
+                target_high=2*target_pts)
+        if y_range is None:
+            print("Bad y range")
+            return None, None
+        actual_y_sel = (self.y_cumul[y_range[1]] - self.y_cumul[y_range[0]]) / self.data_size
+        if actual_y_sel < selectivity or actual_y_sel > single_dim_sel:
+            print("Couldn't find good y selectivity range")
+            return None, None
+        print(self.x_count[x_range[0]:x_range[1]].sum() / self.data_size, '\t',
+                self.y_count[y_range[0]:y_range[1]].sum() / self.data_size)
+        pts_in_rect = self.points_within(x_range[0], y_range[0], x_range[1], y_range[1])
+        assert pts_in_rect < selectivity*self.data_size*0.5 and \
+                pts_in_rect > selectivity*self.data_size*2, "Got %d pts (sel %f)" % \
+                (pts_in_rect, pts_in_rect / self.data_size)
+        return ((self.bounds[0][x_range[0]], self.bounds[0][x_range[1]]),\
+                (self.bounds[1][y_range[0]], self.bounds[1][y_range[1]])), pts_in_rect
+         
+
+    # This might not produce a query (by chance)
+    def try_query_with_target_old(self, target_bounds):
+        xstart = random.randint(0, self.cumul_hist.shape[0]-1)
+        present_buckets = np.where(self.points_present[xstart])[0]
+        ystart = random.randint(present_buckets.min() - 1, present_buckets.max() + 1)
+        # Choose a uniform angle between 10 and 80 degrees.
+        direction = random.uniform(15 * np.pi/180., 75 * np.pi / 180.)
+        # Search along this direction until we're within the bound of target
+        l = xstart+1
+        r = self.cumul_hist.shape[0]
+        start_ct = self.get(xstart, ystart)
+        while (l < r):
+            mid_x = int((l + r)/2)
+            mid_y = self.get_y_bucket(xstart, ystart, mid_x, direction)
+            mid_y = min(mid_y, self.cumul_hist.shape[1])
+            pts_in_rect = self.points_within(xstart, ystart, mid_x, mid_y)
+            if pts_in_rect < target_bounds[0]:
+                l = mid_x+1
+            elif pts_in_rect > target_bounds[1]:
+                r = mid_x
+            else:
+                print(self.x_count[xstart:mid_x].sum() / self.data_size, '\t',
+                        self.y_count[ystart:mid_y].sum() / self.data_size)
+                return ((self.bounds[0][xstart], self.bounds[0][mid_x]),
+                        (self.bounds[1][ystart], self.bounds[1][mid_y])), pts_in_rect
+    
+        final_x = int(l)
+        final_y = self.get_y_bucket(xstart, ystart, final_x, direction)
+        final_y = min(final_y, self.cumul_hist.shape[1])
+        pts_in_rect = self.points_within(xstart, ystart, final_x, final_y)
+        if pts_in_rect < target_bounds[0] or pts_in_rect > target_bounds[1]:
+            return None, None
+        return ((self.bounds[0][xstart], self.bounds[0][final_x]),
+                (self.bounds[1][ystart], self.bounds[1][final_y])), pts_in_rect
+
+
 
 
 class QueryGen(object):
@@ -65,6 +213,93 @@ class QueryGen(object):
             f.write(self.query_str(r))
         f.close()
 
+    def find_range_end(self, cumuls, startix, target_bounds):
+        left = startix
+        right = len(cumuls)-1
+        base_count = cumuls[startix-1] if startix > 0 else 0
+        c = cumuls[startix] - base_count
+        while left < right:
+            mid = int((left + right)/2)
+            c = cumuls[mid] - base_count
+            if c < target_bounds[0]:
+                left = mid+1
+            elif c > target_bounds[1]:
+                right = mid
+            else:
+                # We return an inclusive range
+                return mid, c
+        return left, cumuls[left] - base_count
+    
+    def gen_equiselective_1D(self, dim, sel, n, outfile):
+        vals, counts = np.unique(self.data[:, dim], return_counts=True)
+        target = int(sel * len(self.data))
+        max_ix = len(counts)
+        s = 0
+        for c in reversed(counts):
+            s += c
+            if s >= target:
+                break
+            max_ix -= 1
+        cumuls = np.cumsum(counts)
+        f = open(outfile, 'w')
+        written = 0
+        counts = []
+        while written < n:
+            startix = random.randint(0, max_ix)
+            endix, c = self.find_range_end(cumuls, startix, (0.9*target, 1.1*target)) 
+            if c < 0.5*target or c > 2*target:
+                # Too far out of bounds
+                sys.stdout.write('x')
+                continue
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            counts.append(c)
+            r = { dim: (vals[startix], vals[endix]) }
+            f.write(self.query_str(r))
+            written += 1
+        print("\nFinished generating queries:")
+        f.close()
+        ptls = [0, 10, 50, 90, 100]
+        count_ptls = np.percentile(counts, ptls)
+        for (p, c) in zip(ptls, count_ptls):
+            print("%d ptl: %d" % (p, c))
+
+    def gen_equiselective_2D(self, dims, sel, n, outfile):
+        assert len(dims) == 2
+        h = Hist2D(self.data[:,(dims[0], dims[1])])
+        target = int(sel * len(self.data))
+        written = 0
+        counts = []
+        f = open(outfile, 'w')
+        while written < n:
+            res, ct = h.try_query_with_target(sel)
+            if res is None:
+                sys.stdout.write('x')
+                sys.stdout.flush()
+                continue
+            r = {
+                    dims[0]: res[0],
+                    dims[1]: res[1]
+                }
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            counts.append(ct)
+            f.write(self.query_str(r))
+            written += 1
+        f.close()
+        ptls = [0, 10, 50, 90, 100]
+        count_ptls = np.percentile(counts, ptls)
+        for (p, c) in zip(ptls, count_ptls):
+            print("%d ptl: %d" % (p, c))
+
+                
+    def gen_equiselective(self, dims, sels, n, outfile):
+        assert len(dims) <= 2 and len(sels) == 1
+        if len(dims) == 1:
+            self.gen_equiselective_1D(dims[0], sels[0], n, outfile)
+        if len(dims) == 2:
+            self.gen_equiselective_2D(dims, sels[0], n, outfile)
+
 def gen_from_spec(args, distribution, nq, output):
     dataset = np.fromfile(args["datafile"], dtype=int).reshape(-1, args["ncols"])
     cols = [args["map_dims"][0]] + [td[0] for td in args["target_dims"]]
@@ -103,12 +338,17 @@ if __name__ == "__main__":
     parser.add_argument("--filter-widths",
             type=float,
             nargs="+",
-            required=True,
             help="Widths along each dimension (len(--type) == len(--width))." + \
-                    "If negative, generates widths uniformly")
+                    " If this and --selectivies aren't set, generates widths uniformly." + \
+                    " Used when --distribution={uniform, proportional}")
+    parser.add_argument("--selectivities",
+            type=float,
+            nargs="+",
+            help="Selectivities along each dimension (between 0 and 1)," + \
+                    " used when --distribution=equiselective")
     parser.add_argument("--distribution",
             type=str,
-            choices=["uniform", "proportional"],
+            choices=["uniform", "proportional", "equiselective"],
             required=True,
             help="Distribution of queries. If proportional, will generate queries proportional to " + \
                 "the distribution of points along the mapped dimension. Otherwise, queries will be " + \
@@ -122,13 +362,14 @@ if __name__ == "__main__":
     dataset = np.fromfile(args.dataset, dtype=args.dtype).reshape(-1, args.dim)
     qg = QueryGen(dataset)
     assert (len(args.filter_dims) > 0)
-    assert (len(args.filter_dims) == len(args.filter_widths))
+    assert (args.filter_widths is None or args.selectivities is None)
     
     if args.distribution == "proportional":
         qg.gen_proportional(args.filter_dims, args.filter_widths, args.nqueries, args.output)
     elif args.distribution == "uniform":
         qg.gen_uniform(args.filter_dims, args.filter_widths, args.nqueries, args.output)
-
+    elif args.distribution == "equiselective":
+        qg.gen_equiselective(args.filter_dims, args.selectivities, args.nqueries, args.output)
 
 
 
