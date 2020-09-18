@@ -10,15 +10,16 @@
 #include "utils.h"
 
 template <size_t D>
-LinearModelRewriter<D>::LinearModelRewriter(const std::string& filename) {
+LinearModelRewriter<D>::LinearModelRewriter(const std::string& filename)
+    : outlier_index_() {
     Load(filename);
 }
 
 template <size_t D>
 void LinearModelRewriter<D>::Load(const std::string& filename) {
     std::ifstream file(filename);
-    assert (file.is_open());
-    assert (FileUtils::NextLine(file) == "linear");
+    AssertWithMessage(file.is_open(), "Couldn't find file " + filename);
+    AssertWithMessage(FileUtils::NextLine(file) == "linear", "Bad input " + filename);
 
     auto dims = FileUtils::NextArray<size_t>(file, 2);
     mapped_dim_ = dims[0];
@@ -28,46 +29,67 @@ void LinearModelRewriter<D>::Load(const std::string& filename) {
     linear_coeffs_.second = coeffs[1];
     auto offset = FileUtils::NextArray<double>(file, 1);
     model_offset_ = offset[0];
+    std::cout << "Loaded linear model " << mapped_dim_ << " -> " << target_dim_
+        << ", coeffs: " << linear_coeffs_.first << " " << linear_coeffs_.second << ", offset = " << model_offset_ << std::endl;
+}
+    
+template <size_t D>
+void LinearModelRewriter<D>::Init(ConstPointIterator<D> start, ConstPointIterator<D> end) {
+    IndexList outliers;
+    size_t ix = 0;
+    for (auto it = start; it != end; it++, ix++) {
+        const Point<D>& p = *it;
+        ScalarRange inlier_range = RangeFor(p[mapped_dim_]);
+        if (p[target_dim_] < inlier_range.first || p[target_dim_] > inlier_range.second) {
+           outliers.push_back(ix);
+        } 
+    }
+    outlier_index_->SetIndexList(outliers); 
+    outlier_index_->Init(start, end);
 }
 
 template <size_t D>
-Query<D> LinearModelRewriter<D>::Rewrite(const Query<D>& q) const {
+ScalarRange LinearModelRewriter<D>::RangeFor(Scalar val) {
+    double offset = linear_coeffs_.second > 0 ? model_offset_ : -model_offset_;
+    double tstart = linear_coeffs_.first + linear_coeffs_.second * val - offset;
+    double tend = linear_coeffs_.first + linear_coeffs_.second * val + offset;
+    if (tend < tstart) {
+        std::swap(tstart, tend);
+    }
+    // This range is inclusive.
+    return {(Scalar)ceil(tstart), (Scalar)tend};
+}
+
+template <size_t D>
+IndexList LinearModelRewriter<D>::Rewrite(Query<D>& q) {
     if (!q.filters[mapped_dim_].present) {
-        return q;
+        return {};
     }
     assert (q.filters[mapped_dim_].is_range);
     Scalar start = q.filters[mapped_dim_].ranges[0].first;
     Scalar end = q.filters[mapped_dim_].ranges[0].second;   
 
-    double offset = linear_coeffs_.second > 0 ? model_offset_ : -model_offset_;
-    double tstart = linear_coeffs_.first + linear_coeffs_.second * start - offset;
-    double tend = linear_coeffs_.first + linear_coeffs_.second * end + offset;
-    if (tend < tstart) {
-        std::swap(tstart, tend);
-    }
-
+    ScalarRange start_range = RangeFor(start);
+    ScalarRange end_range = RangeFor(end);
+    ScalarRange combined = {min(start_range.first, end_range.first),
+        max(start_range.second, end_range.second)};
+    
     // Intersect this with the existing ranges in the filter.
     QueryFilter target_qf = q.filters[target_dim_];
-    std::pair<double, double> range = {0,0};
-    if (!target_qf.present) {
-        range = {tstart, tend};
-    } else {
+    if (target_qf.present) {
         assert (target_qf.is_range);
         ScalarRange existing = target_qf.ranges[0];
-        double mod_first = fmax((double)(existing.first), tstart);
-        double mod_second = fmin((double)(existing.second), tend);
-        range = {mod_first, mod_second};
+        combined.first = max(combined.first, existing.first);
+        combined.second = min(combined.second, existing.second);
     }
     
     std::vector<ScalarRange> ranges;
-    if (range.second > range.first) {
-        ScalarRange srange;
-        srange.first = (Scalar)(range.first);
-        srange.second = (Scalar)(ceil(range.second));
-        ranges.push_back(srange);
-    } 
-    Query<D> rewritten = q;
-    rewritten.filters[target_dim_] = {.present=true, .is_range=true, .ranges=ranges};
-    return rewritten; 
+    ranges.push_back(combined);
+    
+    q.filters[target_dim_] = {.present=true, .is_range=true, .ranges=ranges};
+    if (outlier_index_) {
+        return outlier_index_->Matches(q);
+    }
+    return {};
 }
 

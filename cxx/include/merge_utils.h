@@ -12,6 +12,7 @@ class MergeUtils {
 
   public:
     static IndexRangeList Intersect(const IndexRangeList&, const IndexRangeList&);
+    static std::vector<ScalarRange> Intersect(const std::vector<ScalarRange>&, const std::vector<ScalarRange>&);
 
     static IndexList Intersect(const IndexList&, const IndexList&);
 
@@ -26,6 +27,9 @@ class MergeUtils {
 
     static IndexList Merge(const IndexRangeList&, const IndexList&);
 
+    // Scalar ranges must be sorted.
+    template <class ForwardIterator>
+    static std::vector<ScalarRange> Coalesce(ForwardIterator begin, ForwardIterator end);
 };
 
 #include "../src/merge_utils.hpp"

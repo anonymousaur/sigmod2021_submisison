@@ -26,7 +26,7 @@ void OutlierIndex<D>::SetOutlierIndexer(std::unique_ptr<PrimaryIndexer<D>> index
 }
 
 template <size_t D>
-PhysicalIndexSet OutlierIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet OutlierIndex<D>::Ranges(Query<D>& q) {
     bool relevant = false;
     for (size_t col : this->columns_) {
         relevant |= q.filters[col].present;

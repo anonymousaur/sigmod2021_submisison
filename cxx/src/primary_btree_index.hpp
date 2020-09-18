@@ -35,7 +35,7 @@ PhysicalIndexRange PrimaryBTreeIndex<D>::PageRangeFor(Scalar start, Scalar end) 
 }
 
 template <size_t D>
-PhysicalIndexSet PrimaryBTreeIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet PrimaryBTreeIndex<D>::Ranges(Query<D>& q) {
     auto accessed = q.filters[column_];
     if (!accessed.present || pages_.empty()) {
         // No actionable filter on the data, so scan everything.

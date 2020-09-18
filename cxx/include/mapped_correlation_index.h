@@ -26,8 +26,14 @@ class MappedCorrelationIndex : public CorrelationIndexer<D> {
             s += it->second.size() * sizeof(PhysicalIndexRange);
             s += sizeof(ScalarRange);
         }
-        // Factor of 2 is safe. Switch to the google c++ btree for a lower factor.
-        return 2*s;
+        // BTree overhead (5 bytes per entry)
+        return mapping_.size() * 10 + s;
+    }
+
+    // This is ONLY for use in special cases. Usually the column is automatically set from the
+    // mapping file.
+    void SetColumn(size_t col) {
+        this->column_ = col;
     }
 
   private:
@@ -44,8 +50,9 @@ class MappedCorrelationIndex : public CorrelationIndexer<D> {
     // Mapping from mapped dimension bucket value (left bound) to range of indices it corresponds to.
     // TODO: use a CPP B-Tree here (https://code.google.com/archive/p/cpp-btree/) for
     // memory-efficient and fast accesses.
-    std::map<ScalarRange, IndexRangeList, ScalarRangeComp> mapping_; 
-
+    btree::btree_map<ScalarRange, IndexRangeList, ScalarRangeComp> mapping_; 
+    btree::btree_map<ScalarRange, std::vector<int32_t>, ScalarRangeComp> mapping_lst_;
+    std::vector<std::pair<int32_t, PhysicalIndexRange>> target_buckets_;
 };
 
 #include "../src/mapped_correlation_index.hpp"

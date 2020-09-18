@@ -8,9 +8,9 @@ set(CMAKE_CXX_STANDARD 17)
 
 #set(CMAKE_CXX_FLAGS "-Wall -Wextra -std=c++17 -march=native -fopenmp -D_GLIBCXX_PARALLEL -fext-numeric-literals -pthread")
 # Suppress warnings. Replace with previous line to enable warnings.
-set(CMAKE_CXX_FLAGS "-fmax-errors=10 -std=c++17 -march=native -fopenmp -D_GLIBCXX_PARALLEL -fext-numeric-literals -pthread")
+set(CMAKE_CXX_FLAGS "-O3 -fmax-errors=10 -std=c++17 -march=native -fopenmp -D_GLIBCXX_PARALLEL -fext-numeric-literals -pthread")
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -mfma -mbmi2 -ffast-math -fno-tree-vectorize -fno-finite-math-only")
+set(CMAKE_CXX_FLAGS_RELEASE "-mfma -mbmi2 -ffast-math -fno-tree-vectorize -fno-finite-math-only")
 # Flags for the Park RL environment.
 set(CMAKE_PARK_FLAGS "-march=x86-64")
 option(NDEBUG "Turn off logging" OFF)
@@ -40,12 +40,6 @@ include_directories(/usr/local/include)
 file(GLOB SOURCES "src/*.cpp")
 add_executable(benchmark_categorical_index benchmark_categorical_index.cpp ${SOURCES})
 add_executable(run_mapped_correlation_index run_correlation_index.cpp ${SOURCES})
-add_executable(run_linear_correlation_index run_correlation_index.cpp ${SOURCES})
-target_compile_definitions(run_linear_correlation_index PUBLIC USE_LINEAR=1)
-add_executable(run_secondary_index run_correlation_index.cpp ${SOURCES})
-target_compile_definitions(run_secondary_index PUBLIC USE_SECONDARY=1)
-add_executable(run_full_scan run_correlation_index.cpp ${SOURCES})
-target_compile_definitions(run_full_scan PUBLIC FULL_SCAN=1)
 
 
 configure_file(CMakeLists.txt.in googletest-download/CMakeLists.txt)
@@ -80,4 +74,10 @@ add_executable(test_single_column_rewriter ${TESTDIR}/test_single_column_rewrite
 target_link_libraries(test_single_column_rewriter gtest_main)
 add_executable(test_merge_utils ${TESTDIR}/test_merge_utils.cpp ${SOURCES})
 target_link_libraries(test_merge_utils gtest_main)
+add_executable(test_target_bucket ${TESTDIR}/test_target_bucket.cpp ${SOURCES})
+target_link_libraries(test_target_bucket gtest_main)
+add_executable(test_trs_tree ${TESTDIR}/test_trs_tree.cpp ${SOURCES})
+target_link_libraries(test_trs_tree gtest_main)
+add_executable(test_compression ${TESTDIR}/test_compressed_column_order_dataset.cpp ${SOURCES})
+target_link_libraries(test_compression gtest_main)
 

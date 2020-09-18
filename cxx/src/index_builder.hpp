@@ -3,12 +3,12 @@
 #include "utils.h"
 
 template <size_t D>
-std::unique_ptr<PrimaryIndexer<D>> IndexBuilder<D>::Build(std::string spec) {
+std::shared_ptr<PrimaryIndexer<D>> IndexBuilder<D>::Build(std::string spec) {
     std::ifstream f(spec);
     assert (f.is_open());
     auto base_ptr = Dispatch(f, true);
     AssertWithMessage(base_ptr->Type() == IndexerType::Primary, "Root index must be a primary index");
-    std::unique_ptr<PrimaryIndexer<D>> indexer(dynamic_cast<PrimaryIndexer<D>*>(base_ptr.release()));
+    std::shared_ptr<PrimaryIndexer<D>> indexer(dynamic_cast<PrimaryIndexer<D>*>(base_ptr.release()));
     return indexer;
 }
 
@@ -37,6 +37,12 @@ std::unique_ptr<Indexer<D>> IndexBuilder<D>::Dispatch(std::ifstream& spec, bool 
         return BuildOctreeIndex(spec);
     } else if (next_index == "BucketedSecondaryIndex") {
         return BuildBucketedSecondaryIndex(spec);
+    } else if (next_index == "LinearModelRewriter") {
+        return BuildLinearModelRewriter(spec);
+    } else if (next_index == "TRSTreeRewriter") {
+        return BuildTRSTreeRewriter(spec);
+    } else if (next_index == "MeasureBetaIndex") {
+        return BuildMeasureBetaIndex(spec);
     } else if (next_index == "}") {
         // Case to deal with variable length indexes
         return nullptr;
@@ -69,16 +75,18 @@ std::unique_ptr<SecondaryBTreeIndex<D>> IndexBuilder<D>::BuildSecondaryBTreeInde
     std::string paren, optional_list, paren2;
     size_t dim;
     spec >> paren >> dim >> optional_list;
+    auto index = std::make_unique<SecondaryBTreeIndex<D>>(dim);
     if (optional_list == "}") {
         AssertWithMessage(paren == "{", "Incorrect spec for SecondaryBTreeIndex");
-        return std::make_unique<SecondaryBTreeIndex<D>>(dim);
+        return index;
         std::cout << "Building SecondaryBTreeIndex with dim " << dim << std::endl;
     }
     spec >> paren2;
     AssertWithMessage(paren == "{" && paren2 == "}", "Incorrect spec for SecondaryBTreeIndex");
     IndexList outlier_list = load_binary_file<size_t>(optional_list);
     std::cout << "Building SecondaryBTreeIndex with dim " << dim << " and outlier list of size " << outlier_list.size() << std::endl;
-    return std::make_unique<SecondaryBTreeIndex<D>>(dim, outlier_list);
+    index->SetIndexList(outlier_list);
+    return index;
 }
 
 template <size_t D>
@@ -157,6 +165,13 @@ std::unique_ptr<CompositeIndex<D>> IndexBuilder<D>::BuildCompositeIndex(std::ifs
                             static_cast<CorrelationIndexer<D>*>(next_index.release())));
                 std::cout << "Adding correlation index to CompositeIndex" << std::endl;
                 break;
+            case Rewriting:
+                composite_index->AddRewriter(std::unique_ptr<Rewriter<D>>(
+                            static_cast<Rewriter<D>*>(next_index.release())));
+                std::cout << "Adding rewriter to CompositeIndex" << std::endl;
+                break;
+            default:
+                AssertWithMessage(false, "Unrecognized index type " + std::to_string(next_index->Type()));
         }
     }
     std::cout << "Building CompositeIndex" << std::endl;
@@ -181,6 +196,8 @@ std::unique_ptr<OctreeIndex<D>> IndexBuilder<D>::BuildOctreeIndex(std::ifstream&
     for (size_t i = 1; i < params.size(); i++) {
         indexed_dims.push_back(std::stoi(params[i]));
     }
+    std::cout << "Building Octree index with page size " << page_size << " and "
+        << indexed_dims.size() << " columns" << std::endl;
     return std::make_unique<OctreeIndex<D>>(indexed_dims, page_size);
 }
        
@@ -204,5 +221,59 @@ std::unique_ptr<BucketedSecondaryIndex<D>> IndexBuilder<D>::BuildBucketedSeconda
     auto idx = std::make_unique<BucketedSecondaryIndex<D>>(dim, outlier_list);
     idx->SetBucketFile(mapfile);
     return idx;
+}
+
+template <size_t D>
+std::unique_ptr<LinearModelRewriter<D>> IndexBuilder<D>::BuildLinearModelRewriter(std::ifstream& spec) {
+    std::string paren, mapfile;
+    spec >> paren >> mapfile;
+    AssertWithMessage(paren == "{", "Incorrect spec for LinearModelRewriter");
+    auto rewriter = std::make_unique<LinearModelRewriter<D>>(mapfile);
+    
+    auto next_index = Dispatch(spec);
+    AssertWithMessage(next_index != nullptr, "Expected an auxiliary index for rewriter");
+    AssertWithMessage(next_index->Type() == Secondary, "Expected Secondary Indexer for writer");
+    rewriter->SetAuxiliaryIndex(std::unique_ptr<SecondaryBTreeIndex<D>>(
+                        dynamic_cast<SecondaryBTreeIndex<D>*>(next_index.release())));
+    std::cout << "Setting secondary index for LinearModelRewriter" << std::endl;
+    spec >> paren;
+    AssertWithMessage(paren == "}", "Incorrect spec: expected '}'");
+    return rewriter;
+}
+
+template <size_t D>
+std::unique_ptr<TRSTreeRewriter<D>> IndexBuilder<D>::BuildTRSTreeRewriter(std::ifstream& spec) {
+    std::string paren;
+    size_t mapped_dim, target_dim;
+    spec >> paren >> mapped_dim >> target_dim;
+    AssertWithMessage(paren == "{", "Incorrect spec for TRSTreeRewriter");
+    auto rewriter = std::make_unique<TRSTreeRewriter<D>>(mapped_dim, target_dim);
+    auto next_index = Dispatch(spec);
+    AssertWithMessage(next_index != nullptr, "Expected an auxiliary index for rewriter");
+    AssertWithMessage(next_index->Type() == Secondary, "Expected Secondary Indexer for writer");
+    rewriter->SetAuxiliaryIndex(std::unique_ptr<SecondaryBTreeIndex<D>>(
+                        dynamic_cast<SecondaryBTreeIndex<D>*>(next_index.release())));
+    std::cout << "Setting secondary index for TRSTreeRewriter" << std::endl;
+    spec >> paren;
+    AssertWithMessage(paren == "}", "Incorrect spec: expected '}'");
+    return rewriter;
+}
+
+template <size_t D>
+std::unique_ptr<MeasureBetaIndex<D>> IndexBuilder<D>::BuildMeasureBetaIndex(std::ifstream& spec) {
+    std::string paren;
+    size_t dim;
+    spec >> paren >> dim;
+    AssertWithMessage(paren == "{", "Incorrect spec for MeasuredBetaIndex");
+    auto rewriter = std::make_unique<MeasureBetaIndex<D>>(dim);
+    auto next_index = Dispatch(spec);
+    AssertWithMessage(next_index != nullptr, "Expected an auxiliary index for MeasureBeta index");
+    AssertWithMessage(next_index->Type() == Secondary, "Expected Secondary Indexer for MeasureBeta index");
+    rewriter->SetAuxiliaryIndex(std::unique_ptr<SecondaryIndexer<D>>(
+                        dynamic_cast<BucketedSecondaryIndex<D>*>(next_index.release())));
+    std::cout << "Setting secondary index for MeasuredBetaIndex" << std::endl;
+    spec >> paren;
+    AssertWithMessage(paren == "}", "Incorrect spec: expected '}'");
+    return rewriter;
 }
 

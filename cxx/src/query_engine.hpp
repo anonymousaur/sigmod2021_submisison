@@ -8,23 +8,20 @@
 
 template <size_t D>
 QueryEngine<D>::QueryEngine(
-        std::unique_ptr<Dataset<D>> dataset,
-        std::unique_ptr<PrimaryIndexer<D>> indexer)
-    : QueryEngine<D>(std::move(dataset), std::move(indexer), nullptr) {}
-
-template <size_t D>
-QueryEngine<D>::QueryEngine(
-        std::unique_ptr<Dataset<D>> dataset,
-        std::unique_ptr<PrimaryIndexer<D>> indexer,
-        std::unique_ptr<Rewriter<D>> rewriter)
-    : dataset_(std::move(dataset)),
-      indexer_(std::move(indexer)),
-      rewriter_(std::move(rewriter)),
+        std::shared_ptr<Dataset<D>> dataset,
+        std::shared_ptr<PrimaryIndexer<D>> indexer)
+    : dataset_(dataset),
+      indexer_(indexer),
       columns_(indexer_->GetColumns()),
-      scanned_range_points_(0), scanned_list_points_(0) {}
+      scanned_range_points_(0),
+      scanned_list_points_(0),
+      range_scan_time_(0),
+      indexing_time_(0),
+      list_scan_time_(0),
+      num_queries_(0) {}
 
 template <size_t D>
-void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
+void QueryEngine<D>::Execute(Query<D>& q, Visitor<D>& visitor) {
     std::vector<size_t> categorical_query_dimensions;
     std::vector<size_t> range_query_dimensions;
     std::vector<std::unordered_set<Scalar>> value_sets;
@@ -41,8 +38,8 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
             }
         }
     }
-    Query<D> newq = rewriter_ ? rewriter_->Rewrite(q) : q;
-    PhysicalIndexSet indexes_to_scan = indexer_->Ranges(newq);
+    auto preindex = std::chrono::high_resolution_clock::now();
+    PhysicalIndexSet indexes_to_scan = indexer_->Ranges(q);
     auto start = std::chrono::high_resolution_clock::now();
     for (PhysicalIndexRange range : indexes_to_scan.ranges) {
         scanned_range_points_ += range.end - range.start;
@@ -76,12 +73,19 @@ void QueryEngine<D>::Execute(const Query<D>& q, Visitor<D>& visitor) {
             valid &= dataset_->GetCoordInRange(p, p+1,
                     d, r.first, r.second);
         }
-        visitor.visitRange(dataset_.get(), p, p+1, valid); 
+        if (valid > 0) {
+            visitor.visit(PointRef<D>(dataset_.get(), p));
+        }
     }
     auto end = std::chrono::high_resolution_clock::now();
     auto ranges_t = std::chrono::duration_cast<std::chrono::nanoseconds>(mid-start).count();
     auto list_t = std::chrono::duration_cast<std::chrono::nanoseconds>(end-mid).count();
+    auto index_t = std::chrono::duration_cast<std::chrono::nanoseconds>(start-preindex).count();
     std::cout << "Scan time (us): ranges = " << ranges_t / 1e3
         << ", list = " << list_t / 1e3 << ", total = " << (ranges_t + list_t) / 1e3 << std::endl;
+    num_queries_ += 1;
+    range_scan_time_ += ranges_t;
+    list_scan_time_ += list_t;
+    indexing_time_ += index_t;
 }
 

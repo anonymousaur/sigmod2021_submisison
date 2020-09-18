@@ -8,6 +8,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include <memory>
 
 #ifndef DIM
 #define DIM 4
@@ -120,12 +121,46 @@ struct PhysicalIndexRange {
 // Compare ranges by their end value.
 struct ScalarRangeComp {
     bool operator() (const ScalarRange& lhs, const ScalarRange& rhs) const {
-        return lhs.first < rhs.first;
+        return lhs.second < rhs.second;
     } 
+};
+
+struct ScalarRangeStartComp {
+    bool operator() (const ScalarRange& lhs, const ScalarRange& rhs) const {
+        return lhs.first < rhs.first;
+    }
 };
 
 typedef std::vector<PhysicalIndexRange> IndexRangeList;
 typedef std::vector<PhysicalIndex> IndexList;
+
+template <size_t D>
+using ConstPointIterator = typename std::vector<Point<D>>::const_iterator;
+
+template <size_t D>
+using PointIterator = typename std::vector<Point<D>>::iterator;
+
+//struct IndexList {
+//  public:
+//    IndexList(std::initializer_list<PhysicalIndex> init_lst)
+//        : vec(init_lst), sorted(false);
+//
+//    void Sort() {
+//        if (!sorted) {
+//            std::sort(vec.begin(), vec.end());
+//            sorted = true;
+//        }
+//    }
+//
+//    std::vector<PhysicalIndex> Get() {
+//        return vec;
+//    }
+//
+//  private:
+//      std::vector<PhysicalIndex> vec;
+//      bool sorted;
+//
+//}
 
 // The output of indexes - secondary indexes usually report lists, while clustered indexes report
 // ranges. The true physical index set is a union of teh ranges and the lists.
@@ -136,5 +171,16 @@ struct PhysicalIndexSet {
     PhysicalIndexSet() : ranges(), list() {}
 };
 
-enum IndexerType { Primary, Secondary, Correlation};
+enum IndexerType { Primary, Secondary, Correlation, Rewriting };
+
+struct PrimaryIndexNode {
+    // The range of indexes this node is responsible for.
+    virtual PhysicalIndex StartOffset() = 0;
+    virtual PhysicalIndex EndOffset() = 0;
+    // A unique identifying number of this node in the index.
+    // This does not have to follow any order.
+    virtual int32_t Id() = 0;
+    // Leaf nodes will return an empty list.
+    virtual std::vector<std::shared_ptr<PrimaryIndexNode>> Descendants() = 0;
+};
 

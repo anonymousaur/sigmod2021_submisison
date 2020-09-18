@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
     std::cout << "Compression time: " << compression_time / 1e9 << "s" << std::endl;
     std::cout << "Indexer sizei (B): " << indexer->Size() << std::endl;
 
-    QueryEngine<DIM> engine(std::move(dataset), std::move(indexer), std::move(rewriter));
+    QueryEngine<DIM> engine(std::move(dataset), std::move(indexer));
     auto index_creation_finish = std::chrono::high_resolution_clock::now();
     auto index_creation_time = std::chrono::duration_cast<std::chrono::nanoseconds>(index_creation_finish-index_creation_start).count();
     std::cout << "Index creation time: " << index_creation_time / 1e9 << "s" << std::endl;

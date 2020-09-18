@@ -221,12 +221,20 @@ Scalar CompressedColumnOrderDataset<D>::GetCoord(size_t index, size_t dim) const
 #ifdef LITTLE_ENDIAN_ORDER
     byte_block = __builtin_bswap64(byte_block);
 #endif
+    /*std::cout << "block index " << (index >> COLUMN_COMPRESSION_BLOCK_SIZE_POW)
+        << ", cblk.bit_offset " << cblk.bit_offset
+        << ", cblk.bit_width " << (int)cblk.bit_width
+        << ", offset in block " << offset_in_block
+        << ", bit_offset_from_start " << bit_offset_from_start
+        << ", bit_offset_from_byte_boundary " << bit_offset_from_byte_boundary
+        << ", shift " << shift
+        << ", byteblock " << std::bitset<64>(byte_block)
+        << ", mask " << std::bitset<64>(mask) << std::endl;*/
     return cblk.base_value + ((byte_block >> shift) & cblk.bit_mask);
 } 
 
 template <size_t D>
-uint64_t CompressedColumnOrderDataset<D>::GetCoordInSet(size_t start_ix, size_t end_ix, size_t dim,
-        const std::unordered_set<Scalar>& val_set) const {
+uint64_t CompressedColumnOrderDataset<D>::GetCoordRange(size_t start_ix, size_t end_ix, size_t dim, Scalar lower, Scalar upper) const {
     size_t cur_blk_ix = start_ix >> COLUMN_COMPRESSION_BLOCK_SIZE_POW;
     const CompressionBlock cblk = cblocks_[dim * blocks_per_column_ + cur_blk_ix];
     size_t offset_in_block = start_ix & COLUMN_COMPRESSION_BLOCK_SIZE_MASK;
@@ -248,17 +256,79 @@ uint64_t CompressedColumnOrderDataset<D>::GetCoordInSet(size_t start_ix, size_t 
 #endif
         Scalar val = cblk.base_value + ((byte_block >> shift) & cblk.bit_mask);
         valids <<= 1;
-        valids |= (val_set.find(val) != val_set.end());
+        valids |= val >= lower && val <= upper;
         bit_offset_from_start += cblk.bit_width;
     }
     if (end < end_ix) {
         // The range spans at most 2 blocks. Fetch the other block if necessary.
-        uint64_t last_part = GetCoordInSet(end, end_ix, dim, val_set);
+        uint64_t last_part = GetCoordRange(end, end_ix, dim, lower, upper);
         valids = (valids << (end_ix - end)) | last_part;
     }
     return valids;
 }
     
+template <size_t D>
+void CompressedColumnOrderDataset<D>::GetRangeValues(size_t start_ix, size_t end_ix, size_t dim, uint64_t valids, std::vector<Scalar> *results) const {
+    size_t cur_blk_ix = start_ix >> COLUMN_COMPRESSION_BLOCK_SIZE_POW;
+    const CompressionBlock cblk = cblocks_[dim * blocks_per_column_  + cur_blk_ix];
+    size_t offset_in_block = start_ix & COLUMN_COMPRESSION_BLOCK_SIZE_MASK;
+    uint64_t bit_offset_from_start = cblk.bit_offset + cblk.bit_width * offset_in_block;
+    size_t end = std::min(end_ix, (cur_blk_ix+1) << COLUMN_COMPRESSION_BLOCK_SIZE_POW);
+    uint64_t mask = 1UL << (end_ix - start_ix - 1);
+    for (size_t i = start_ix; i < end; i++) {  
+        // Get last 3 bits, which tell us which bit we need to start at.
+        size_t bit_offset_from_byte_boundary = bit_offset_from_start & 0b111;
+        // Extract the bits we need from it.
+        size_t shift = 64 - cblk.bit_width - bit_offset_from_byte_boundary;
+        uint64_t byte_block = *(uint64_t *)(column_data_[dim] + (bit_offset_from_start >> 3));
+#ifdef LITTLE_ENDIAN_ORDER
+        byte_block = __builtin_bswap64(byte_block);
+#endif
+        Scalar val = cblk.base_value + ((byte_block >> shift) & cblk.bit_mask);
+        if (valids & mask) {
+            results->push_back(val);    
+        }
+        mask >>= 1;
+        bit_offset_from_start += cblk.bit_width;
+    }
+    if (end < end_ix) {
+        // The range spans at most 2 blocks. Fetch the other block if necessary.
+        GetRangeValues(end, end_ix, dim, valids, results);
+    }
+}
+    
+template <size_t D>
+Scalar CompressedColumnOrderDataset<D>::GetRangeSum(size_t start_ix, size_t end_ix, size_t dim, uint64_t valids) const {
+    size_t cur_blk_ix = start_ix >> COLUMN_COMPRESSION_BLOCK_SIZE_POW;
+    const CompressionBlock cblk = cblocks_[dim * blocks_per_column_ + cur_blk_ix];
+    size_t offset_in_block = start_ix & COLUMN_COMPRESSION_BLOCK_SIZE_MASK;
+    uint64_t bit_offset_from_start = cblk.bit_offset + cblk.bit_width * offset_in_block;
+    size_t end = std::min(end_ix, (cur_blk_ix+1) << COLUMN_COMPRESSION_BLOCK_SIZE_POW);
+    uint64_t mask = 1UL << (end_ix - start_ix - 1);
+    Scalar sum = 0;
+    for (size_t i = start_ix; i < end; i++) {  
+        if (valids & mask) {
+            // Get last 3 bits, which tell us which bit we need to start at.
+            size_t bit_offset_from_byte_boundary = bit_offset_from_start & 0b111;
+            // Extract the bits we need from it.
+            size_t shift = 64 - cblk.bit_width - bit_offset_from_byte_boundary;
+            uint64_t byte_block = *(uint64_t *)(column_data_[dim] + (bit_offset_from_start >> 3));
+#ifdef LITTLE_ENDIAN_ORDER
+            byte_block = __builtin_bswap64(byte_block);
+#endif
+            Scalar val = cblk.base_value + ((byte_block >> shift) & cblk.bit_mask);
+            sum += val;
+        }
+        mask >>= 1;
+        bit_offset_from_start += cblk.bit_width;
+    }
+    if (end < end_ix) {
+        // The range spans at most 2 blocks. Fetch the other block if necessary.
+        sum += GetRangeSum(end, end_ix, dim, valids);
+    }
+    return sum;
+}
+
 template <size_t D>
 Point<D> CompressedColumnOrderDataset<D>::Get(size_t ix) const {
     std::array<Scalar, D> pt;
@@ -267,4 +337,32 @@ Point<D> CompressedColumnOrderDataset<D>::Get(size_t ix) const {
     }
     return pt;
 }
+
+//template <size_t D>
+//void CompressedColumnOrderDataset<D>::SaveToDisk(
+//        const std::vector<size_t>& page_boundaries, std::string filename, uint32_t page_size) {
+//    dsm_ = new DiskStorageManager(filename, page_size);
+//    for (size_t c = 0; c < num_columns_; c++) {
+//        size_t page_start = 0;
+//        size_t page_end;  // exclusive
+//        for (size_t i = 0; i < page_boundaries.size(); i++) {
+//            page_end = page_boundaries[i];
+//            SavePageToDisk(c, page_start, page_end);
+//            page_start = page_end;
+//        }
+//        page_end = size_;
+//        SavePageToDisk(c, page_start, page_end);
+//    }
+//    dsm_->flush();
+//}
+//
+//template <size_t D>
+//void CompressedColumnOrderDataset<D>::SavePageToDisk(size_t column, size_t start_idx, size_t end_idx) {
+//
+//}
+//
+//template <size_t D>
+//void CompressedColumnOrderDataset<D>::SetMemoryLimit() {
+//
+//}
 

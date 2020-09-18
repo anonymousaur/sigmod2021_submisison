@@ -86,6 +86,13 @@ namespace test {
         EXPECT_TRUE(ArrayEqual(got, want));
     }
 
+    TEST_F(MergeUtilsTest, TestCoalesce) {
+        std::vector<ScalarRange> ranges = {{0, 4}, {3, 6}, {8, 10}, {10, 12}, {15, 30}, {20, 25}, {24, 27}};
+        std::vector<ScalarRange> want = {{0, 6}, {8, 12}, {15, 30}};
+        auto got = MergeUtils::Coalesce(ranges.begin(), ranges.end());
+        EXPECT_TRUE(ArrayEqual(got, want));
+    }
+
     TEST_F(MergeUtilsTest, TimedTest) {
         std::default_random_engine gen;
         std::uniform_int_distribution<int> dist(1,1<<30);
@@ -136,5 +143,7 @@ namespace test {
         tt = std::chrono::duration_cast<std::chrono::nanoseconds>(finish-start).count();
         std::cout << "Result size " << got.size() << ", time = " << tt / 1e3 << "us" << std::endl;
     }
+
+
 } // namespace test
 

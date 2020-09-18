@@ -17,12 +17,16 @@ class BinarySearchIndex : public PrimaryIndexer<D> {
 
     void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(Query<D>& q) override; 
 
     void SetData(Dataset<D>* dataset_);
 
     size_t Size() const override {
         return 0;
+    }
+
+    void WriteStats(std::ofstream& statsfile) override {
+        statsfile << "primary_index_type: rbinary_search_index_" << column_ << std::endl;
     }
 
   protected:

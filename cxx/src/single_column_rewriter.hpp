@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <set>
 
+#include "utils.h"
+
 template <size_t D>
 SingleColumnRewriter<D>::SingleColumnRewriter(const std::string& filename) 
     : cmap_continuous_(), cmap_categorical_(), mapped_dim_(), target_dim_() {
@@ -327,8 +329,7 @@ QueryFilter SingleColumnRewriter<D>::RewriteValueFilter(const QueryFilter& qf_ma
 }
 
 template <size_t D>
-Query<D> SingleColumnRewriter<D>::Rewrite(const Query<D>& q) const {
-    Query<D> rewritten = q;
+IndexList SingleColumnRewriter<D>::Rewrite(Query<D>& q) {
     // Deep copy the query filters.
     /*for (int i = 0; i < D; i++) {
         rewritten.filters[i] = q.filters[i];
@@ -342,14 +343,15 @@ Query<D> SingleColumnRewriter<D>::Rewrite(const Query<D>& q) const {
     }*/
     if (q.filters[mapped_dim_].present) {
         if (q.filters[mapped_dim_].is_range) {
-            rewritten.filters[target_dim_] = RewriteRangeFilter(
+            q.filters[target_dim_] = RewriteRangeFilter(
                     q.filters[mapped_dim_], q.filters[target_dim_]);
         } else {
-            rewritten.filters[target_dim_] = RewriteValueFilter(
+            q.filters[target_dim_] = RewriteValueFilter(
                     q.filters[mapped_dim_], q.filters[target_dim_]);
         }
     }
-    return rewritten;
+    AssertWithMessage(false, "SingleColumnRewriter does not support auxiliary indexes");
+    return {};
 }
 
 

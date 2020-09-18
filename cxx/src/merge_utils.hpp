@@ -6,6 +6,9 @@
 
 IndexRangeList MergeUtils::Intersect(const IndexRangeList& first, const IndexRangeList& second) {
     // Assumes both ranges are already sorted.
+    if (first.empty() || second.empty()) {
+        return {};
+    }
     IndexRangeList final_ranges;
     size_t i = 0, j = 0;
     size_t count = 0;
@@ -62,9 +65,73 @@ IndexRangeList MergeUtils::Intersect(const IndexRangeList& first, const IndexRan
     return final_ranges;
 }
 
-IndexList MergeUtils::Intersect(const IndexList& list1, const IndexList& list2) {
-    IndexList output;
+std::vector<ScalarRange> MergeUtils::Intersect(const std::vector<ScalarRange>& first, const std::vector<ScalarRange>& second) {
+    // Assumes both ranges are already sorted.
+    std::vector<ScalarRange> final_ranges;
     size_t i = 0, j = 0;
+    size_t count = 0;
+    Scalar cur_first = first[0].first, cur_second = second[0].first;
+    bool i_start = true, j_start = true;
+    bool in_range = false;
+    ScalarRange cur_range;
+    while (i < first.size() && j < second.size()) {
+        Scalar cur_first, cur_second, popped;
+        if (i_start) { cur_first = first[i].first; }
+        else { cur_first = first[i].second; }
+        
+        if (j_start) { cur_second = second[j].first; }
+        else { cur_second = second[j].second; }
+        
+        // Here, we don't care about the case when they're equal.
+        // Since ranges in each input vector are not contiguous, if there's an equality here, it
+        // won't change the final answer.
+        if (cur_first < cur_second) {
+            popped = cur_first;
+            if (i_start) {
+                count++;
+                i_start = false;
+            }
+            else {
+                count--;
+                i++;
+                i_start = true;
+            }
+        } else {
+            popped = cur_second;
+            if (j_start) {
+                count++;
+                j_start = false;
+            }
+            else {
+                count--;
+                j_start = true;
+                j++;
+            }
+        }
+        if (count == 2) {
+            assert (!in_range);
+            in_range = true;
+            cur_range.first = popped;
+        } else if (in_range) {
+            assert (count == 1);
+            cur_range.second = popped;
+            final_ranges.push_back(cur_range);
+            in_range = false;
+        }
+    }
+    assert (count < 2);
+    return final_ranges;
+}
+
+IndexList MergeUtils::Intersect(const IndexList& list1, const IndexList& list2) {
+    std::cout << "Intersecting two IndexLists with sizes " << list1.size() << ", " << list2.size() << std::endl;
+    IndexList output;
+    output.reserve(std::min(list1.size(), list2.size()));
+    std::set_intersection(list1.begin(), list1.end(), list2.begin(), list2.end(),
+            std::back_inserter(output));
+    std::cout << "Intersect output = " << output.size() << std::endl;
+    return output;
+    /*size_t i = 0, j = 0;
     while (i < list1.size() && j < list2.size()) {
         if (list1[i] < list2[j]) {
             i++;
@@ -76,7 +143,7 @@ IndexList MergeUtils::Intersect(const IndexList& list1, const IndexList& list2) 
             j++;
         }
     }
-    return output;
+    return output;*/
 }
 
 PhysicalIndexSet MergeUtils::Intersect(const PhysicalIndexSet& set1, const PhysicalIndexSet& set2) {
@@ -278,48 +345,22 @@ IndexList MergeUtils::Union(const std::vector<const IndexList *> ix_lists) {
     }
     return all_ixs;
 }
-/**
- * Old implementation of Union with a heap
-    typedef std::pair<size_t, size_t> ixsrc;
-    struct IndexComp {
-        // Pair of index and list it came from.
-        bool operator() (const ixsrc& lhs, const ixsrc& rhs) const {
-            // Define less in the opposite way, so the max-heap algorithm returns the smallest index
-            // first.
-            return lhs.first > rhs.first;
-        } 
-    } cmp;
 
-    IndexList final_list;
-    std::vector<ixsrc> heap;
-    heap.reserve(ix_lists.size());
-    size_t max_size;
-    std::vector<size_t> cur_ixs(ix_lists.size(), 0);
-    for (size_t i = 0; i < ix_lists.size(); i++) {
-        max_size += ix_lists[i]->size();
-        AssertWithMessage(ix_lists[i]->size() > 0, "Empty list passed to HeapUnion");
-        heap.push_back({ix_lists[i]->operator[](0), i});
-    }
-    final_list.reserve(max_size);
-    std::make_heap(heap.begin(), heap.end(), cmp);
-    size_t prev = 0;
-    while (!heap.empty()) {
-        std::pop_heap(heap.begin(), heap.end(), cmp);
-        ixsrc ix = heap.back();
-        heap.pop_back();
-        // Make sure these indexes are distinct.
-        if (final_list.empty() || prev < ix.first) {
-            final_list.push_back(ix.first);
-            prev = ix.first;
-        }
-        cur_ixs[ix.second]++;
-        if (cur_ixs[ix.second] < ix_lists[ix.second]->size()) {
-            ix.first = ix_lists[ix.second]->operator[](cur_ixs[ix.second]);
-            heap.push_back(ix);
-            std::push_heap(heap.begin(), heap.end(), cmp);
+template <class ForwardIterator>
+std::vector<ScalarRange> MergeUtils::Coalesce(ForwardIterator begin, ForwardIterator end) {
+    std::vector<ScalarRange> ranges;
+    ScalarRange cur_range = {std::numeric_limits<Scalar>::lowest(), std::numeric_limits<Scalar>::lowest()};
+    for (auto it = begin; it != end; it++) {
+        if (it->first <= cur_range.second) {
+            cur_range.second = std::max(cur_range.second, it->second);
+        } else {
+            if (cur_range.second > cur_range.first) {
+                ranges.push_back(cur_range);
+            }
+            cur_range = {it->first, it->second};
         }
     }
-    final_list.shrink_to_fit();
-    return final_list;
+    ranges.push_back(cur_range);
+    return ranges;
 }
-*/
+

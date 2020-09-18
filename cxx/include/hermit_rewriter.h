@@ -12,10 +12,10 @@
 #include "secondary_indexer.h"
 
 template <size_t D>
-class LinearModelRewriter : public Rewriter<D> {
+class HermitRewriter : public Rewriter<D> {
   public:
     // Loads the one-to-one rewriter from a file.
-    LinearModelRewriter(const std::string& filename);
+    HermitRewriter(const std::string& filename);
 
     void SetAuxiliaryIndex(std::unique_ptr<SecondaryBTreeIndex<D>> index) {
         outlier_index_ = std::move(index);
@@ -26,11 +26,7 @@ class LinearModelRewriter : public Rewriter<D> {
     IndexList Rewrite(Query<D>& q) override;
 
     size_t Size() const override {
-        size_t s = 3*sizeof(double) + 2*sizeof(size_t);
-        if (outlier_index_ != nullptr) {
-            s += outlier_index_->Size();
-        }
-        return s;
+        return 3*sizeof(double) + 2*sizeof(size_t);
     }    
 
   protected:

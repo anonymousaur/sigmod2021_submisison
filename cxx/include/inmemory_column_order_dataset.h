@@ -21,6 +21,9 @@ class InMemoryColumnOrderDataset : public Dataset<D> {
   public:
     explicit InMemoryColumnOrderDataset(std::vector<Point<D>> data) {
         // Index the datacubes by the columns they will appear in.
+        for (size_t d = 0; d < D; d++) {
+            columns_[d].reserve(data.size());
+        }
         for (const Point<D> &p : data) {
             for (size_t d = 0; d < D; d++) {
                 columns_[d].push_back(p[d]);

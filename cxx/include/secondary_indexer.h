@@ -8,9 +8,6 @@
 #include "types.h"
 #include "dataset.h"
    
-template <size_t D>
-using ConstPointIterator = typename std::vector<Point<D>>::const_iterator;
-
 /*
  * Interface for a secondary index, which does not determine the layout of the data. Instead of
  * returning matching ranges, it can only return the indexes of the points that match.

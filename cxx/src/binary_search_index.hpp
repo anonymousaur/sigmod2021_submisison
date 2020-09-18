@@ -15,7 +15,7 @@ BinarySearchIndex<D>::BinarySearchIndex(size_t dim)
 
 template <size_t D>
 size_t BinarySearchIndex<D>::LocateLeft(Scalar val) const {
-    size_t l = 0, r = sorted_data_.size();
+    size_t l = 0, r = sorted_data_.size() - 1;
     while (l < r) {
         size_t m = (l + r)/2;
         if (sorted_data_[m] < val) {
@@ -29,7 +29,7 @@ size_t BinarySearchIndex<D>::LocateLeft(Scalar val) const {
 
 template <size_t D>
 size_t BinarySearchIndex<D>::LocateRight(Scalar val) const {
-    size_t l = 0, r = sorted_data_.size();
+    size_t l = 0, r = sorted_data_.size() - 1;
     while (l < r) {
         size_t m = (l + r)/2;
         if (sorted_data_[m] <= val) {
@@ -42,7 +42,8 @@ size_t BinarySearchIndex<D>::LocateRight(Scalar val) const {
 }
 
 template <size_t D>
-PhysicalIndexSet BinarySearchIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet BinarySearchIndex<D>::Ranges(Query<D>& q) {
+    // Querying 
     auto accessed = q.filters[column_];
     if (!accessed.present) {
         return {.ranges = {{0, sorted_data_.size()}}, .list = IndexList()};
@@ -88,7 +89,7 @@ void BinarySearchIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
         indices[i] = std::make_pair(ix_val, i);
     }
 
-    // Sort by this array instead.
+    // Sort by this array instead, preserving the existing order as much as possible.
     std::stable_sort(indices.begin(), indices.end(),
         [](const std::pair<Scalar, size_t>& a, const std::pair<Scalar, size_t>& b) -> bool {
             return a.first < b.first;
@@ -109,14 +110,18 @@ void BinarySearchIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
                 return *(start + ix_pair.second);
                 });
 
-    size_t col = this->column_;
+    size_t col = column_;
     std::transform(data_cpy.cbegin(), data_cpy.cend(), sorted_data_.begin(),
             [col](const Point<D>& pt) -> Scalar {
                 return pt[col];
                 });
     std::copy(data_cpy.cbegin(), data_cpy.cend(), start);
+    AssertWithMessage(std::is_sorted(sorted_data_.begin(), sorted_data_.end()),
+            "BinarySearchIndex data was not sorted");
     if (data_modified) {
         std::cout << "BinarySearchIndex modified data" << std::endl;
+    } else {
+        std::cout << "BinarySearchIndex did not modify data" << std::endl;
     }
     ready_ = true;
 }

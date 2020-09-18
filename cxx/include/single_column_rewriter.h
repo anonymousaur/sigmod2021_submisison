@@ -42,8 +42,10 @@ class SingleColumnRewriter : public Rewriter<D> {
         return s;
     }
 
-    Query<D> Rewrite(const Query<D>& q) const override;
-    
+    IndexList Rewrite(Query<D>& q) override;
+
+    void Init(ConstPointIterator<D> start, ConstPointIterator<D> end) override {}
+        
     void Load(const std::string& filename);
 
     std::vector<ScalarRange> UnionSortedRanges(

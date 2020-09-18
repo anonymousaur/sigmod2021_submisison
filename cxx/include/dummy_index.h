@@ -17,7 +17,7 @@ class DummyIndex : public PrimaryIndexer<D> {
     // Given a query bounding box, specified by the bottom left point p1 and
     // bottom-right point p2, initialize an iterator, which successively returns
     // ranges of VirtualIndices to check.
-    virtual PhysicalIndexSet Ranges(const Query<D>& query) const override {
+    virtual PhysicalIndexSet Ranges(Query<D>& q) override { 
         IndexList lst;
         return PhysicalIndexSet({{0, data_size_}}, lst);
     }
@@ -32,6 +32,10 @@ class DummyIndex : public PrimaryIndexer<D> {
     }
     
     virtual std::unordered_set<size_t> GetColumns() const { return this->columns_; }
+
+    void WriteStats(std::ofstream& statsfile) {
+        statsfile << "primary_index_type: dummy_index" << std::endl;
+    }
 
     protected:
     size_t data_size_;

@@ -20,6 +20,10 @@
 #include "outlier_index.h"
 #include "bucketed_secondary_index.h"
 #include "octree_index.h"
+#include "rewriter.h"
+#include "linear_model_rewriter.h"
+#include "trs_tree_rewriter.h"
+#include "measure_beta_index.h"
 
 /*
  * Given a file as an index specification, builds and returns the appropriate index.
@@ -29,7 +33,7 @@ class IndexBuilder {
   public:
     IndexBuilder() {}
 
-    std::unique_ptr<PrimaryIndexer<D>> Build(std::string index_spec);
+    std::shared_ptr<PrimaryIndexer<D>> Build(std::string index_spec);
 
   protected:
     // Responsible for calling the correct builder for the next index.
@@ -46,7 +50,9 @@ class IndexBuilder {
     std::unique_ptr<PrimaryBTreeIndex<D>> BuildPrimaryBTreeIndex(std::ifstream& spec);
     std::unique_ptr<OctreeIndex<D>> BuildOctreeIndex(std::ifstream& spec);
     std::unique_ptr<BucketedSecondaryIndex<D>> BuildBucketedSecondaryIndex(std::ifstream& spec);
-
+    std::unique_ptr<LinearModelRewriter<D>> BuildLinearModelRewriter(std::ifstream& spec);
+    std::unique_ptr<TRSTreeRewriter<D>> BuildTRSTreeRewriter(std::ifstream& spec);
+    std::unique_ptr<MeasureBetaIndex<D>> BuildMeasureBetaIndex(std::ifstream& spec);
 };
 
 #include "../src/index_builder.hpp"

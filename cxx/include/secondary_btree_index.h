@@ -3,6 +3,7 @@
 #include <vector>
 #include <map>
 
+#include "cpp-btree/btree_map.h"
 #include "secondary_indexer.h"
 #include "types.h"
 
@@ -10,12 +11,15 @@ template <size_t D>
 class SecondaryBTreeIndex : public SecondaryIndexer<D> {
   public:
     SecondaryBTreeIndex(size_t dim);
-    // Only index the indices specified by 'subset'
-    SecondaryBTreeIndex(size_t dim, IndexList subset);
+
+    void SetIndexList(IndexList list) {
+        index_subset_ = list;
+        use_index_subset_ = true;
+    }
 
     void Init(ConstPointIterator<D> start, ConstPointIterator<D> end) override;
 
-    std::vector<size_t> Matches(const Query<D>& q) const override; 
+    IndexList Matches(const Query<D>& q) const override; 
     
     size_t Size() const override {
         size_t unique_keys = 0;
@@ -29,7 +33,9 @@ class SecondaryBTreeIndex : public SecondaryIndexer<D> {
             }
         }
         // Based on: https://code.google.com/archive/p/cpp-btree/
-        return 3*unique_keys*sizeof(Scalar) + total_entries*sizeof(size_t);
+        // Each key (in a random insertion benchmark) carries an overhead of 10 bytes (for 64-bit
+        // machines)
+        return unique_keys*10 + total_entries*sizeof(PhysicalIndex);
     }
 
   private:
@@ -37,10 +43,11 @@ class SecondaryBTreeIndex : public SecondaryIndexer<D> {
     size_t data_size_;
     // True when the index has been initialized.
     bool ready_;
+    bool use_index_subset_;
     IndexList index_subset_;
-    // A map from dimension value to index range where points with that dimension value that are NOT
+    // A map from dimension value to index range where points with that dimension value that are
     // outliers can be found.
-    std::multimap<Scalar, size_t> btree_;
+    btree::btree_multimap<Scalar, PhysicalIndex> btree_;
 };
 
 #include "../src/secondary_btree_index.hpp"

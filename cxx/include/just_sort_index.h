@@ -15,7 +15,7 @@ class JustSortIndex : public PrimaryIndexer<D> {
   public:
     JustSortIndex(size_t dim) : PrimaryIndexer<D>(dim), column_(dim) {}
 
-    PhysicalIndexSet Ranges(const Query<D>& q) const override {
+    PhysicalIndexSet Ranges(Query<D>& q) override {
         IndexList lst;
         return PhysicalIndexSet({{0, data_size_}}, lst);
     }

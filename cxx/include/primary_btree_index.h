@@ -23,7 +23,7 @@ class PrimaryBTreeIndex : public PrimaryIndexer<D> {
 
     virtual void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(Query<D>& q) override; 
     
     size_t Size() const override {
         return (pages_.size() + 1) * sizeof(Page);

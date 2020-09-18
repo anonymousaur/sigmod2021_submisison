@@ -2,11 +2,13 @@
 
 #include <vector>
 #include <memory>
+#include <fstream>
 
 #include "types.h"
 #include "primary_indexer.h"
 #include "secondary_indexer.h"
 #include "correlation_indexer.h"
+#include "rewriter.h"
 
 /*
  * An index that combines other indexes together. It allows at most one primary index and multiple
@@ -23,9 +25,11 @@ class CompositeIndex : public PrimaryIndexer<D> {
 
     bool AddSecondaryIndex(std::unique_ptr<SecondaryIndexer<D>> index);
 
+    bool AddRewriter(std::unique_ptr<Rewriter<D>> rewriter);
+
     virtual void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(Query<D>& q) override; 
     
     size_t Size() const override {
         size_t s = 0;
@@ -37,6 +41,9 @@ class CompositeIndex : public PrimaryIndexer<D> {
         }
         for (auto& si : secondary_indexes_) {
             s += si->Size();
+        }
+        for (auto& rw : rewriters_) {
+            s += rw->Size();
         }
         return s;
     }
@@ -56,7 +63,24 @@ class CompositeIndex : public PrimaryIndexer<D> {
     // Public for testing.
     std::vector<size_t> Intersect(const std::vector<size_t>&, const std::vector<size_t>&) const;
 
+    void WriteStats(std::ofstream& statsfile) override {
+        if (primary_index_) {
+            primary_index_->WriteStats(statsfile);
+        }
+        for (auto& ci : correlation_indexes_) {
+            ci->WriteStats(statsfile);
+        }
+        for (auto& si : secondary_indexes_) {
+            si->WriteStats(statsfile);
+        }
+    }
+
   private:
+    PhysicalIndexSet RangesWithPrimary(Query<D>& q);
+    PhysicalIndexSet RangesWithRewriter(Query<D>& q);
+    PhysicalIndexSet RangesWithSecondary(Query<D>& q);
+    PhysicalIndexSet RangesWithCorrelation(Query<D>& q);
+    
     // If consecutive matching indexes are at or below this gap threshold, includes them in a single
     // range. Otherwise, truncates the old range and starts a new one.
     size_t gap_threshold_;
@@ -68,6 +92,7 @@ class CompositeIndex : public PrimaryIndexer<D> {
     std::unique_ptr<PrimaryIndexer<D>> primary_index_;
     std::vector<std::unique_ptr<SecondaryIndexer<D>>> secondary_indexes_;
     std::vector<std::unique_ptr<CorrelationIndexer<D>>> correlation_indexes_;
+    std::vector<std::unique_ptr<Rewriter<D>>> rewriters_;
 };
 
 #include "../src/composite_index.hpp"

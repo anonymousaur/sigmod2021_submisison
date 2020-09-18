@@ -18,7 +18,7 @@ class OutlierIndex : public PrimaryIndexer<D> {
 
     virtual void Init(PointIterator<D> start, PointIterator<D> end) override;
 
-    PhysicalIndexSet Ranges(const Query<D>& q) const override; 
+    PhysicalIndexSet Ranges(Query<D>& q) override; 
    
     // Sets the indexer for the non-outliers, must be called *before* Init
     void SetIndexer(std::unique_ptr<PrimaryIndexer<D>> indexer);

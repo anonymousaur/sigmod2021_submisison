@@ -8,8 +8,6 @@
 #include "dataset.h"
 #include "indexer.h"
 
-template <size_t D>
-using PointIterator = typename std::vector<Point<D>>::iterator;
 
 template <size_t D>
 class PrimaryIndexer : public Indexer<D> {
@@ -21,7 +19,7 @@ class PrimaryIndexer : public Indexer<D> {
     // Given a query bounding box, specified by the bottom left point p1 and
     // bottom-right point p2, initialize an iterator, which successively returns
     // ranges of VirtualIndices to check.
-    virtual PhysicalIndexSet Ranges(const Query<D>& query) const = 0;
+    virtual PhysicalIndexSet Ranges(Query<D>& query) = 0;
 
     virtual void Init(PointIterator<D> start, PointIterator<D> end) = 0;
 

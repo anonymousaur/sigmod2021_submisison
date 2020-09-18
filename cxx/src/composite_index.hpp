@@ -21,15 +21,28 @@ bool CompositeIndex<D>::SetPrimaryIndex(std::unique_ptr<PrimaryIndexer<D>> index
 
 template <size_t D>
 bool CompositeIndex<D>::AddSecondaryIndex(std::unique_ptr<SecondaryIndexer<D>> index) {
-    assert (index != NULL);
+    AssertWithMessage(index != NULL, "Tried to add NULL secondary index");
+    AssertWithMessage(correlation_indexes_.empty(), "Cannot use secondary index with correlation index"); 
+    AssertWithMessage(rewriters_.empty(), "Cannot use secondary index with rewriters"); 
     secondary_indexes_.push_back(std::move(index));
     return true;
 }
 
 template <size_t D>
 bool CompositeIndex<D>::AddCorrelationIndex(std::unique_ptr<CorrelationIndexer<D>> index) {
-    assert (index != NULL);
+    AssertWithMessage(index != NULL, "Tried to add NULL correlation index");
+    AssertWithMessage(secondary_indexes_.empty(), "Cannot use correlation index with secondary index"); 
+    AssertWithMessage(rewriters_.empty(), "Cannot use correlation index with rewriters");
     correlation_indexes_.push_back(std::move(index));
+    return true;
+}
+
+template <size_t D>
+bool CompositeIndex<D>::AddRewriter(std::unique_ptr<Rewriter<D>> rewriter) {
+    AssertWithMessage(rewriter != NULL, "Tried to add NULL rewriter");
+    AssertWithMessage(secondary_indexes_.empty(), "Cannot use rewriters with secondary index"); 
+    AssertWithMessage(correlation_indexes_.empty(), "Cannot use rewriters with correlation index"); 
+    rewriters_.push_back(std::move(rewriter));
     return true;
 }
 
@@ -48,20 +61,50 @@ void CompositeIndex<D>::Init(PointIterator<D> start, PointIterator<D> end) {
         si->Init(start, end);
         this->columns_.insert(si->GetColumn());
     }
+    for (auto& rw : rewriters_) {
+        rw->Init(start, end);
+    }
     data_size_ = std::distance(start, end);
 }
 
 template <size_t D>
-PhysicalIndexSet CompositeIndex<D>::Ranges(const Query<D>& q) const {
+PhysicalIndexSet CompositeIndex<D>::RangesWithPrimary(Query<D>& q) {
     PhysicalIndexSet to_scan;
     if (primary_index_ != NULL) {
-        to_scan = primary_index_->Ranges(q);
-    } else {
-        to_scan = PhysicalIndexSet({{0, data_size_}}, {}); 
+        return primary_index_->Ranges(q);
     }
+    return PhysicalIndexSet({{0, data_size_}}, {}); 
+}
+
+template <size_t D>
+PhysicalIndexSet CompositeIndex<D>::RangesWithRewriter(Query<D>& q) {
+    IndexList auxiliary_indexes;
+    // Assumes all the indexes from rewriters are unsorted.
+    for (auto& rw : rewriters_) {
+        IndexList aux = rw->Rewrite(q);
+        if (auxiliary_indexes.empty() && !aux.empty()) {
+            auxiliary_indexes = std::move(aux);
+        } else {
+            auxiliary_indexes.insert(auxiliary_indexes.end(), aux.begin(), aux.end());
+        }
+    }
+
+    PhysicalIndexSet to_scan = RangesWithPrimary(q);
+    AssertWithMessage(to_scan.list.empty(), "Expected no secondary indexes");
     bool full_scan = to_scan.ranges.size() == 1 &&
         to_scan.ranges[0].end - to_scan.ranges[0].start == data_size_;
-   
+    if (full_scan) {
+        return to_scan;
+    }
+    std::sort(auxiliary_indexes.begin(), auxiliary_indexes.end());
+    return MergeUtils::Union(to_scan.ranges, auxiliary_indexes);
+}
+
+template <size_t D>
+PhysicalIndexSet CompositeIndex<D>::RangesWithCorrelation(Query<D>& q) {
+    PhysicalIndexSet to_scan = RangesWithPrimary(q);
+    bool full_scan = to_scan.ranges.size() == 1 &&
+        to_scan.ranges[0].end - to_scan.ranges[0].start == data_size_;
     for (auto& ci : correlation_indexes_) {
         if (!q.filters[ci->GetMappedColumn()].present) {
             continue;
@@ -70,6 +113,14 @@ PhysicalIndexSet CompositeIndex<D>::Ranges(const Query<D>& q) const {
         to_scan = full_scan ? std::move(ixs) : MergeUtils::Intersect(to_scan, ixs);
         full_scan = false;
     }
+    return to_scan;
+}
+
+template <size_t D>
+PhysicalIndexSet CompositeIndex<D>::RangesWithSecondary(Query<D>& q) {
+    PhysicalIndexSet to_scan = RangesWithPrimary(q);
+    bool full_scan = to_scan.ranges.size() == 1 &&
+        to_scan.ranges[0].end - to_scan.ranges[0].start == data_size_;
 
     // For each secondary index, merge the secondary index matches into it.
     std::vector<size_t> matches;
@@ -101,13 +152,6 @@ PhysicalIndexSet CompositeIndex<D>::Ranges(const Query<D>& q) const {
                 << "Intersect time: " << tt2 << "ns" << std::endl;
         }
     }
-    size_t indexes_scanned = matches.size() + to_scan.list.size();
-    for (PhysicalIndexRange p : to_scan.ranges) {
-        indexes_scanned += p.end - p.start;
-    }
-    //if (2*indexes_scanned > data_size_) {
-    //    return {{{0, data_size_}}, {}};
-    //}
     // This makes sure we don't sort the secondary index results unless there are non-trivial
     // primary index results to merge with.
     if (matches.size() == 0) {
@@ -123,3 +167,15 @@ PhysicalIndexSet CompositeIndex<D>::Ranges(const Query<D>& q) const {
     return MergeUtils::Intersect(to_scan, {{}, matches});
 }
 
+template <size_t D>
+PhysicalIndexSet CompositeIndex<D>::Ranges(Query<D>& q) {
+    if (!rewriters_.empty()) {
+        return RangesWithRewriter(q);
+    } else if (!correlation_indexes_.empty()) {
+        return RangesWithCorrelation(q);
+    } else if (!secondary_indexes_.empty()) {
+        return RangesWithSecondary(q);
+    } else {
+        return RangesWithPrimary(q);
+    }
+}

@@ -4,11 +4,7 @@
 
 template <size_t D>
 SecondaryBTreeIndex<D>::SecondaryBTreeIndex(size_t dim)
-    : SecondaryBTreeIndex<D>(dim, {}) {}
-
-template <size_t D>
-SecondaryBTreeIndex<D>::SecondaryBTreeIndex(size_t dim, IndexList subset)
-    : SecondaryIndexer<D>(dim), btree_(), index_subset_(subset) {}
+    : SecondaryIndexer<D>(dim), use_index_subset_(false), btree_() {}
 
 template <size_t D>
 std::vector<size_t> SecondaryBTreeIndex<D>::Matches(const Query<D>& q) const {
@@ -44,16 +40,19 @@ std::vector<size_t> SecondaryBTreeIndex<D>::Matches(const Query<D>& q) const {
 template <size_t D>
 void SecondaryBTreeIndex<D>::Init(ConstPointIterator<D> start, ConstPointIterator<D> end) {
     data_size_ = std::distance(start, end);
-    if (index_subset_.empty()) {
+    if (!use_index_subset_) {
         size_t i = 0;
         for (auto it = start; it != end; it++, i++) {
-            btree_.emplace((*it)[this->column_], i);
+            btree_.insert(std::make_pair((*it)[this->column_], i));
         }
     } else {
+        std::cout << "Using provided index list to load B+ tree" << std::endl;
         for (size_t ix : index_subset_) {
-            btree_.emplace((*(start+ix))[this->column_], ix);
+            btree_.insert(std::make_pair((*(start+ix))[this->column_], ix));
         }
         index_subset_.clear();
     }
+    std::cout << "SecondaryBTreeIndex on " << this->column_ << " loaded " << btree_.size() << " points"
+        << " and total size " << Size() << std::endl;
 }
 

@@ -19,7 +19,7 @@ typedef unsigned __int128 uint128_t;
 
 // There are 2^7 = 128 values per compression block.
 // The block size should always be a power of 2 for fast computation.
-const char COLUMN_COMPRESSION_BLOCK_SIZE_POW = 9;
+const char COLUMN_COMPRESSION_BLOCK_SIZE_POW = 7;
 const uint64_t COLUMN_COMPRESSION_BLOCK_SIZE_MASK = (1 << COLUMN_COMPRESSION_BLOCK_SIZE_POW) - 1;
 
 // Each compression block stores metadata for a fixed number of
@@ -70,13 +70,7 @@ class CompressedColumnOrderDataset : public Dataset<D> {
     Scalar GetCoord(size_t index, size_t dim) const override;
 
 
-    // Optimize sequential scans over the dataset by storing intermediate
-    // decoder state. This function may be slower for out of order scans since it incurs cost to
-    // store decoder state, which is amortized only if subsequent calls are to immediately
-    // following indices.
-    uint64_t GetCoordRange(size_t start, size_t end, size_t dim, Scalar lower, Scalar upper) const override;
-    void GetRangeValues(size_t start, size_t end, size_t dim, uint64_t valids, std::vector<Scalar> *results) const override;
-    Scalar GetRangeSum(size_t start, size_t end, size_t dim, uint64_t valids) const override;
+    uint64_t GetCoordInSet(size_t start, size_t end, size_t dim, const std::unordered_set<Scalar>& set) const override;
 
     size_t Size() const override {
         return size_;
@@ -84,10 +78,6 @@ class CompressedColumnOrderDataset : public Dataset<D> {
 
     size_t NumDims() const override {
         return D;
-    }
-
-    size_t PrimaryKeyColumn() const {
-        return primary_key_column_;
     }
 
     uint64_t SizeInBytes() const override {
@@ -101,6 +91,7 @@ class CompressedColumnOrderDataset : public Dataset<D> {
 
     // Public only for testing reasons.
     CompressionBlock *cblocks_;
+
 
 private:
     // Compress the entire dataset.
@@ -127,7 +118,6 @@ private:
     size_t blocks_per_column_;
     // Size of each column in bytes after compression
     std::vector<uint64_t> compressed_column_sizes_;
-    const size_t primary_key_column_ = D;
 };
 
 #include "../src/compressed_column_order_dataset.hpp"

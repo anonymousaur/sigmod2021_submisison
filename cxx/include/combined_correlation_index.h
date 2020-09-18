@@ -4,11 +4,14 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <fstream>
 
 #include "correlation_indexer.h"
 #include "types.h"
 #include "mapped_correlation_index.h"
 #include "secondary_indexer.h"
+
+
 
 template <size_t D>
 class CombinedCorrelationIndex : public CorrelationIndexer<D> {
@@ -26,10 +29,18 @@ class CombinedCorrelationIndex : public CorrelationIndexer<D> {
 
     virtual void Init(ConstPointIterator<D> start, ConstPointIterator<D> end) override {
         assert (mapped_index_ && outlier_index_);
+        if (outlier_index_) {
+            this->column_ = outlier_index_->GetColumn();
+            mapped_index_->SetColumn(this->column_);
+        } else {
+            this->column_ = mapped_index_->GetMappedColumn();
+        }
         mapped_index_->Init(start, end);
-        outlier_index_->Init(start, end);
-        this->column_ = mapped_index_->GetMappedColumn();
-        std::cout << "Initialized Correlation Index with column " << this->column_ << std::endl;
+        if (outlier_index_) {
+            outlier_index_->Init(start, end);
+        }
+        std::cout << "Initialized Combined Correlation Index with column " << this->column_
+            << " and size " << Size() << std::endl;
         data_size_ = std::distance(start, end);
         ready_ = true;
     }
@@ -37,20 +48,38 @@ class CombinedCorrelationIndex : public CorrelationIndexer<D> {
     PhysicalIndexSet Ranges(const Query<D>& q) const override {
         // TODO(vikram): since we're using bucketedSecondaryIndexer, this is already sorted.
         auto start = std::chrono::high_resolution_clock::now();
-        IndexList lst = outlier_index_->Matches(q);
-        auto mid = std::chrono::high_resolution_clock::now();
         PhysicalIndexSet mapped_ranges = mapped_index_->Ranges(q);
+        auto mid = std::chrono::high_resolution_clock::now();
+        auto mid2 = mid;
+        std::cout << "## forcing time: " << mapped_ranges.ranges.size() << std::endl;
+        PhysicalIndexSet ret;
+        if (outlier_index_) {
+            IndexList lst = outlier_index_->Matches(q);
+            std::cout << "## forcing time: " << (lst.empty() || lst[0] > 1000) << std::endl;
+            mid2 = std::chrono::high_resolution_clock::now();
+            ret = MergeUtils::Union(mapped_ranges.ranges, lst);
+        } else {
+            ret = std::move(mapped_ranges);
+        }
         auto end = std::chrono::high_resolution_clock::now();
-        auto match_t = std::chrono::duration_cast<std::chrono::nanoseconds>(mid-start).count();
-        auto range_t = std::chrono::duration_cast<std::chrono::nanoseconds>(end-mid).count();
+        auto range_t = std::chrono::duration_cast<std::chrono::nanoseconds>(mid-start).count();
+        auto match_t = std::chrono::duration_cast<std::chrono::nanoseconds>(mid2-mid).count();
+        auto merge_t = std::chrono::duration_cast<std::chrono::nanoseconds>(end-mid2).count();
         std::cout << "Range time (us): " << range_t / 1e3 << std::endl;
-        std::cout << "Match time (us): " << match_t / 1e3 << std::endl;
-        PhysicalIndexSet ret = MergeUtils::Union(mapped_ranges.ranges, lst);
+        std::cout << "Outlier match time (us): " << match_t / 1e3 << std::endl;
+        std::cout << "Merge time (us): " << merge_t / 1e3 << std::endl;
         return ret;
     }
     
     size_t Size() const override {
-        return mapped_index_->Size() +  outlier_index_->Size();
+        return mapped_index_->Size() + (outlier_index_ ? outlier_index_->Size() : 0);
+    }
+
+    void WriteStats(std::ofstream& statsfile) const {
+        mapped_index_->WriteStats(statsfile);
+        if (outlier_index_) {
+            outlier_index_->WriteStats(statsfile);
+        }
     }
 
   private:

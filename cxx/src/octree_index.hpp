@@ -18,6 +18,7 @@ OctreeIndex<D>::OctreeIndex(std::vector<size_t>& index_dims, size_t page_size) :
         sort_leaf_(false),
         mins_(index_dims.size()),
         maxs_(index_dims.size()),
+        next_id_(0),
         sorted_data_points_(),
         sorted_data_buckets_(),
         num_partitions_(1U << index_dims.size()) {
@@ -41,7 +42,7 @@ int OctreeIndex<D>::get_octant_containing_point(Point<D>& point, std::vector<Sca
 }
 
 template <size_t D>
-bool OctreeIndex<D>::should_keep_dividing(Node* node, int depth) const {
+bool OctreeIndex<D>::should_keep_dividing(std::shared_ptr<Node> node, int depth) const {
     if (depth == DEFAULT_MAX_DEPTH) {
         return false;
     }
@@ -59,7 +60,7 @@ bool OctreeIndex<D>::should_keep_dividing(Node* node, int depth) const {
 }
 
 template <size_t D>
-bool OctreeIndex<D>::divide_node(Node* node, PointIterator<D> data_start, PointIterator<D> data_end, int depth) {
+bool OctreeIndex<D>::divide_node(std::shared_ptr<Node> node, PointIterator<D> data_start, PointIterator<D> data_end, int depth) {
     if (!should_keep_dividing(node, depth)) {
         if (sort_leaf_) {
             std::sort(data_start + node->start_offset, data_start + node->end_offset,
@@ -69,7 +70,7 @@ bool OctreeIndex<D>::divide_node(Node* node, PointIterator<D> data_start, PointI
         }
         sorted_data_buckets_ << node->start_offset << ", " << node->end_offset << std::endl;
         size_t write_size = sizeof(Point<D>) * (node->end_offset - node->start_offset);
-        sorted_data_points_.write((char *)&(*(data_start + node->start_offset)), write_size);
+        sorted_data_points_.write((char *)&*(data_start + node->start_offset), write_size);
         sorted_data_points_.flush();
         return sort_leaf_;
     }
@@ -93,7 +94,7 @@ bool OctreeIndex<D>::divide_node(Node* node, PointIterator<D> data_start, PointI
 //    std::cout << std::endl;
 
     std::vector<std::vector<Point<D>>> child_data(num_partitions_);
-    node->children = std::vector<std::unique_ptr<Node>>(num_partitions_);
+    node->children = std::vector<std::shared_ptr<Node>>(num_partitions_);
     for (size_t i = 0; i < num_partitions_; i++) {
         std::vector<Scalar> child_mins(index_dims_.size());
         std::vector<Scalar> child_maxs(index_dims_.size());
@@ -106,7 +107,8 @@ bool OctreeIndex<D>::divide_node(Node* node, PointIterator<D> data_start, PointI
                 child_maxs[d] = center[d];
             }
         }
-        node->children[i] = std::unique_ptr<Node>(new Node());
+        node->children[i] = std::make_shared<Node>();
+        node->children[i]->id = next_id_++;
         node->children[i]->mins = child_mins;
         node->children[i]->maxs = child_maxs;
     }
@@ -156,9 +158,9 @@ bool OctreeIndex<D>::divide_node(Node* node, PointIterator<D> data_start, PointI
 
     for (size_t i = 0; i < num_partitions_; i++) {
         if (node->children[i]->start_offset == node->children[i]->end_offset) {
-            node->children[i] == nullptr;
+            node->children[i] = nullptr;
         } else {
-            bool mod = divide_node(node->children[i].get(), data_start, data_end, depth + 1);
+            bool mod = divide_node(node->children[i], data_start, data_end, depth + 1);
             data_modified |= mod;
         }
     }
@@ -186,25 +188,30 @@ void OctreeIndex<D>::Init(PointIterator<D> data_start, PointIterator<D> data_end
     }
     std::cout << std::endl;
     data_size_ = std::distance(data_start, data_end);
-    root_node = std::unique_ptr<Node>(new Node());
+    root_node = std::make_shared<Node>();
+    root_node->id = next_id_++;
     root_node->mins = mins_;
     root_node->maxs = maxs_;
     root_node->start_offset = 0;
     root_node->end_offset = std::distance(data_start, data_end);
-    bool modified = divide_node(root_node.get(), data_start, data_end, 0);
+    bool modified = divide_node(root_node, data_start, data_end, 0);
     std::cout << "Data was " << (modified ? "" : "not ") << "modified" << std::endl;
     sorted_data_points_.close();
     sorted_data_buckets_.close();
 }
 
 template <size_t D>
-bool OctreeIndex<D>::is_relevant_node(Node* node, const Query<D>& query) const {
+bool OctreeIndex<D>::is_relevant_node(std::shared_ptr<Node> node, const Query<D>& query) const {
     for (size_t i = 0; i < index_dims_.size(); i++) {
         QueryFilter qf = query.filters[index_dims_[i]];
         if (!qf.present) {
             continue;
         }
         assert (qf.is_range);
+        // This means that the range on this dimension is empty.
+        if (qf.ranges.size() == 0 || qf.ranges[0].first > qf.ranges[0].second) {
+            return false;
+        }
         if (qf.ranges[0].first > node->maxs[i] || qf.ranges[0].second < node->mins[i]) {
             return false;
         }
@@ -214,7 +221,7 @@ bool OctreeIndex<D>::is_relevant_node(Node* node, const Query<D>& query) const {
 
 
 template <size_t D>
-PhysicalIndexSet OctreeIndex<D>::Ranges(const Query<D> &query) const {
+PhysicalIndexSet OctreeIndex<D>::Ranges(Query<D> &query) {
     IndexRangeList ranges;
     bool index_relevant = false;
     for (size_t dim : index_dims_) {
@@ -223,11 +230,11 @@ PhysicalIndexSet OctreeIndex<D>::Ranges(const Query<D> &query) const {
     if (!index_relevant) {
         return {{{0, data_size_}}, {}};
     }
-    std::stack<Node*> node_stack;
-    node_stack.push(root_node.get());
+    std::stack<std::shared_ptr<Node>> node_stack;
+    node_stack.push(root_node);
     size_t indexes_scanned = 0;
     while (!node_stack.empty()) {
-        Node* cur = node_stack.top();
+        std::shared_ptr<Node> cur = node_stack.top();
         node_stack.pop();
         if (!is_relevant_node(cur, query)) {
             continue;
@@ -235,12 +242,14 @@ PhysicalIndexSet OctreeIndex<D>::Ranges(const Query<D> &query) const {
         if (cur->children.empty()) {
             // this node is a leaf
             // TODO: add code here if we're sorting.
-            ranges.emplace_back(cur->start_offset, cur->end_offset);
+            if (cur->end_offset > cur->start_offset) {
+                ranges.emplace_back(cur->start_offset, cur->end_offset);
+            }
             indexes_scanned += cur->end_offset - cur->start_offset;
         } else {
             for (auto it = cur->children.rbegin(); it != cur->children.rend(); it++) {
-                if (*it) {
-                    node_stack.push((*it).get());
+                if (*it != nullptr) {
+                    node_stack.push(*it);
                 }
             }
         }
@@ -257,7 +266,7 @@ size_t OctreeIndex<D>::Size() const {
     size_t num_inner_nodes = 0;
     size_t max_page_size = 0;
     size_t leaf_node_size = sizeof(Node) + sizeof(Scalar) * 2 * index_dims_.size();
-    size_t inner_node_size = leaf_node_size + sizeof(std::unique_ptr<Node*>) * num_partitions_;
+    size_t inner_node_size = leaf_node_size + sizeof(std::shared_ptr<Node*>) * num_partitions_;
     std::stack<Node*> node_stack;
     node_stack.push(root_node.get());
     while (!node_stack.empty()) {

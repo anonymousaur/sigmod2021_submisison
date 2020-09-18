@@ -127,10 +127,10 @@ namespace test {
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = true, .ranges = {{0, 8}}, .values = {}};
 
-        Query<TESTD> revised = rewriter.Rewrite(q);
+        rewriter.Rewrite(q);
         QueryFilter want = {.present = true, .is_range = true, .ranges = {{0, 5}, {6, 11}}};
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[1], want));
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[0], q.filters[0]));        
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[1], want));
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[0], q.filters[0]));        
     }
     
     TEST_F(SingleColumnRewriterTest, TestRewriteContinuousWithTargetFilter) {
@@ -145,10 +145,10 @@ namespace test {
         q.filters[1] = {.present = true, .is_range = true, .ranges = {{3, 8}}};
         q.filters[0] = {.present = true, .is_range = true, .ranges = {{0, 8}}, .values = {}};
 
-        Query<TESTD> revised = rewriter.Rewrite(q);
+        rewriter.Rewrite(q);
         QueryFilter want = {.present = true, .is_range = true, .ranges = {{3, 5}, {6, 8}}};
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[1], want));
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[0], q.filters[0]));        
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[1], want));
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[0], q.filters[0]));        
     }
     
     TEST_F(SingleColumnRewriterTest, TestRewriteCategoricalNoTargetFilter) {
@@ -163,12 +163,12 @@ namespace test {
         q.filters[1] = {.present = false};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {0, 1}};
 
-        Query<TESTD> revised = rewriter.Rewrite(q);
+        rewriter.Rewrite(q);
         // No requirement in code for these to be sorted.
-        std::sort(revised.filters[1].values.begin(), revised.filters[1].values.end());
+        std::sort(q.filters[1].values.begin(), q.filters[1].values.end());
         QueryFilter want = {.present = true, .is_range = false, .values = {0, 1, 2, 3, 4, 6, 7, 8, 9, 10}};
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[1], want));
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[0], q.filters[0]));        
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[1], want));
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[0], q.filters[0]));        
     }
     
     TEST_F(SingleColumnRewriterTest, TestRewriteCategoricalWithTargetFilter) {
@@ -183,9 +183,9 @@ namespace test {
         q.filters[1] = {.present = true, .is_range = false, .ranges = {}, .values = {2, 5, 9}};
         q.filters[0] = {.present = true, .is_range = false, .ranges = {}, .values = {0, 1}};
 
-        Query<TESTD> revised = rewriter.Rewrite(q);
+        rewriter.Rewrite(q);
         QueryFilter want = {.present = true, .is_range = false, .ranges = {}, .values = {2, 9}};
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[1], want));
-        EXPECT_TRUE(QueryFiltersEqual(revised.filters[0], q.filters[0]));        
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[1], want));
+        EXPECT_TRUE(QueryFiltersEqual(q.filters[0], q.filters[0]));        
     }
 }

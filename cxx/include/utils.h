@@ -13,6 +13,86 @@
 #include <vector>
 #include <cassert>
 
+#include "types.h"
+
+
+void AssertWithMessage(bool check, std::string msg) {
+    if (!check) {
+        std::cerr << "Assertion Error: " << msg << std::endl;
+    }
+    assert (check);
+}
+
+std::string ArrayToString(const std::vector<Scalar>& vals) {
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    for (Scalar v : vals) {
+        os << v << " ";
+    }
+    return buffer.str();
+}
+
+template <size_t D>
+std::string PointToString(const Point<D>& pt) {
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    os << "{";
+    for (Scalar p : pt) {
+        os << p << ", ";
+    }
+    os << "}" << std::endl;
+    return buffer.str();
+}
+
+template <size_t D>
+std::string PointsToString(typename std::vector<Point<D>>::iterator start,
+        typename std::vector<Point<D>>::iterator end) {
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    for (auto it = start; it != end; it++) {
+        os << PointToString(*it);
+    }
+    return buffer.str();
+}
+
+std::string RangesToString(const std::vector<PhysicalIndexRange>& ranges) {
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    for (const PhysicalIndexRange& pr : ranges) {
+        os << "[" << pr.start << ", " << pr.end << "]" << std::endl;
+    }
+    return buffer.str();
+}
+
+template <typename T>
+std::string VectorToString(const std::vector<T>& v) {
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    os << "{";
+    for (auto t : v) {
+        os << t << " ";
+    }
+    os << "}" << std::flush;
+    return buffer.str();
+}
+
+
+std::string QueryFilterToString(const QueryFilter& qf) {
+    std::stringbuf buffer;
+    std::ostream os(&buffer);
+    os << "{present = " << qf.present;
+    if (qf.present) {
+        os << ", is_range = " << qf.is_range;
+        if (qf.is_range) {
+            os << ", ranges = " << VectorToString(qf.ranges);
+        } else {
+            os << ", values = " << VectorToString(qf.values);
+        }
+    }
+    os << "}" << std::endl;
+    return buffer.str();
+}
+
 template <typename K>
 std::vector<K> load_binary_file(const std::string &filename) {
     std::vector<K> result;
@@ -26,6 +106,27 @@ std::vector<K> load_binary_file(const std::string &filename) {
     file.read((char*) result.data(), size);
     file.close();
     return result;
+}
+
+// Given a dataset on 'base_cols' columns, replicate the last column so it has D columns.
+template <size_t D>
+std::vector<Point<D>> load_binary_dataset_with_repl(const std::string& filename, size_t base_cols) {
+    std::cout << "Inflating file " << filename << " to " << DIM << " columns" << std::endl;
+    std::vector<Point<D>> results;
+    std::ifstream file;
+    file.open(filename, std::ios::in | std::ios::binary | std::ios::ate);
+    size_t size = file.tellg() / (2*sizeof(Scalar));
+    results.resize(size);
+    file.seekg(0, std::ios::beg);
+    for (size_t s = 0; s < size; s++) {
+        file.read((char*)&results[s], 2*sizeof(Scalar));
+        for (size_t j = 2; j < D; j++) {
+            // Copy the first record.
+            results[s][j] = results[s][0];
+        }
+    }
+    std::cout << "Sample: " << PointToString(results[0]) << std::endl;
+    return results;
 }
 
 template <size_t D>
@@ -77,73 +178,3 @@ std::vector<Query<D>> load_query_file(const std::string& filename) {
     file.close();
     return q_list;
 }
-
-void AssertWithMessage(bool check, std::string msg) {
-    if (!check) {
-        std::cerr << "Assertion Error: " << msg << std::endl;
-    }
-    assert (check);
-}
-
-std::string ArrayToString(const std::vector<Scalar>& vals) {
-    std::stringbuf buffer;
-    std::ostream os(&buffer);
-    for (Scalar v : vals) {
-        os << v << " ";
-    }
-    return buffer.str();
-}
-
-template <size_t D>
-std::string PointsToString(typename std::vector<Point<D>>::iterator start,
-        typename std::vector<Point<D>>::iterator end) {
-    std::stringbuf buffer;
-    std::ostream os(&buffer);
-    for (auto it = start; it != end; it++) {
-        os << "{";
-        for (Scalar p : *it) {
-            os << p << ", ";
-        }
-        os << "}" << std::endl;
-    }
-    return buffer.str();
-}
-
-std::string RangesToString(const std::vector<PhysicalIndexRange>& ranges) {
-    std::stringbuf buffer;
-    std::ostream os(&buffer);
-    for (const PhysicalIndexRange& pr : ranges) {
-        os << "[" << pr.start << ", " << pr.end << "]" << std::endl;
-    }
-    return buffer.str();
-}
-
-template <typename T>
-std::string VectorToString(const std::vector<T>& v) {
-    std::stringbuf buffer;
-    std::ostream os(&buffer);
-    os << "{";
-    for (auto t : v) {
-        os << t << " ";
-    }
-    os << "}" << std::flush;
-    return buffer.str();
-}
-
-
-std::string QueryFilterToString(const QueryFilter& qf) {
-    std::stringbuf buffer;
-    std::ostream os(&buffer);
-    os << "{present = " << qf.present;
-    if (qf.present) {
-        os << ", is_range = " << qf.is_range;
-        if (qf.is_range) {
-            os << ", ranges = " << VectorToString(qf.ranges);
-        } else {
-            os << ", values = " << VectorToString(qf.values);
-        }
-    }
-    os << "}" << std::endl;
-    return buffer.str();
-}
-
